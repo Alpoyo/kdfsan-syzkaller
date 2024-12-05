@@ -105,6 +105,7 @@ func (proc *Proc) loop() {
 }
 
 func (proc *Proc) triageInput(item *WorkTriage) {
+	log.Logf(0, "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT triage called") // DELETE(Alper)
 	log.Logf(1, "#%v: triaging type=%x", proc.pid, item.flags)
 
 	prio := signalPrio(item.p, &item.info, item.call)
@@ -168,6 +169,7 @@ func (proc *Proc) triageInput(item *WorkTriage) {
 	sig := hash.Hash(data)
 
 	log.Logf(2, "added new input for %v to corpus:\n%s", logCallName, data)
+	log.Logf(0, "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG") // DELETE(Alper)
 	proc.fuzzer.sendInputToManager(rpctype.RPCInput{
 		Call:   callName,
 		Prog:   data,
@@ -253,6 +255,7 @@ func (proc *Proc) executeHintSeed(p *prog.Prog, call int) {
 }
 
 func (proc *Proc) execute(execOpts *ipc.ExecOpts, p *prog.Prog, flags ProgTypes, stat Stat) *ipc.ProgInfo {
+	log.Logf(0, "EEEEEEEEEEEEEEEEEEEEEEEEE execute called") // DELETE(Alper)
 	info := proc.executeRaw(execOpts, p, stat)
 	calls, extra := proc.fuzzer.checkNewSignal(p, info)
 	for _, callIndex := range calls {
@@ -311,6 +314,18 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 		log.Logf(0, "*** proc.executeRaw: Kdfsan enabled ***\n")
 	}
 
+	// Alper
+	// Test the taint results logger
+	testMyResults := true
+	if testMyResults {
+		log.Logf(0, "*** Filling myresults with example data ***\n")
+		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/alper/example"); err != nil {
+			log.Logf(0, "Failed myresults example: %v", err)
+		}
+		log.Logf(0, "*** proc.executeRaw: Example data filled ***\n")
+	}
+	// TODO(Alper): randomly configure a syscall to taint
+
 	for try := 0; ; try++ {
 		atomic.AddUint64(&proc.fuzzer.stats[stat], 1)
 		output, info, hanged, err := proc.env.Exec(opts, p)
@@ -324,6 +339,16 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 			continue
 		}
 		log.Logf(2, "result hanged=%v: %s", hanged, output)
+
+		// Alper
+		// Read the kdfsan taint results before the snapshot is restored
+		data, err2 := os.ReadFile("/sys/kernel/debug/alper/results")
+		if err2 != nil {
+			log.Logf(0, "Failed to read /sys/kernel/debug/alper/results: %v", err2)
+		} else {
+			log.Logf(0, "data: %v", string(data))
+		}
+		log.Logf(0, "DELETE ME info: %v", len(info.Calls)) // DELETE(Alper)
 
 		if tmpCtr != 0 { ////
 			if enableKdfsan {

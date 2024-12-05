@@ -277,6 +277,8 @@ func (env *Env) Exec(opts *ExecOpts, p *prog.Prog) (output []byte, info *ProgInf
 			return
 		}
 	}
+	// MARK(Alper): is this where syz-executor is actually being called?
+
 	output, hanged, err0 = env.cmd.exec(opts, progData)
 	if err0 != nil {
 		env.cmd.close()
