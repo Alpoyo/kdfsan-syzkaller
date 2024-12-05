@@ -1047,32 +1047,6 @@ func (mgr *Manager) machineChecked(a *rpctype.CheckArgs) {
 func (mgr *Manager) newInput(inp rpctype.RPCInput, sign signal.Signal) bool {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
-
-	// Alper
-	// Add taint data to my database
-	// TODO(Alper): make it work
-	//  - delineation between inputs
-	var taintDbFilename = "myresults.txt"
-	var taintDbPath = filepath.Join(mgr.cfg.Workdir, taintDbFilename)
-	log.Logf(0, "\u001B[38;2;255;205;0mFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF\u001B[0m") // DELETE(Alper)
-	log.Logf(0, "\033[38;2;255;205;0m%v\033[0m", taintDbPath)
-	myfile, err := os.OpenFile(taintDbPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Logf(0, "\033[1m\033[38;2;255;0;0mError opening file: %v\033[0m", err)
-	}
-	// The fuzzer doesn't have to be aware of any details from the results as it isn't guided by it
-	// so just handle it as a series of characters instead of parsing it as go data.
-	// TODO json header plus content of the result file, json header must be a line
-	//      the header must at least store the number of lines
-	_, err = myfile.WriteString("This is new content to append.\n") // TODO
-	if err != nil {
-		log.Logf(0, "\033[1m\033[38;2;255;0;0mError appending file: %v\033[0m", err)
-	}
-	err = myfile.Close()
-	if err != nil {
-		log.Logf(0, "\033[1m\033[38;2;255;0;0mcant close file\033[0m", err)
-	}
-
 	if mgr.saturatedCalls[inp.Call] {
 		return false
 	}
@@ -1093,6 +1067,36 @@ func (mgr *Manager) newInput(inp rpctype.RPCInput, sign signal.Signal) bool {
 			log.Logf(0, "failed to save corpus database: %v", err)
 		}
 	}
+	return true
+}
+
+// Alper
+func (mgr *Manager) newTaintResult(inp rpctype.RPCInput, sign signal.Signal) bool {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+
+	// Add taint data to my database
+	// TODO(Alper): make it work
+	//  - delineation between inputs
+	var taintDbFilename = "myresults.txt"
+	var taintDbPath = filepath.Join(mgr.cfg.Workdir, taintDbFilename)
+	log.Logf(0, "\u001B[38;2;255;205;0mFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF\u001B[0m") // DELETE(Alper)
+	log.Logf(0, "\033[38;2;255;205;0m%v\033[0m", taintDbPath)
+	myfile, err := os.OpenFile(taintDbPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Logf(0, "\033[1m\033[38;2;255;0;0mError opening file: %v\033[0m", err)
+	}
+	// The fuzzer doesn't have to be aware of any details from the results as it isn't guided by it
+	// so just handle it as a series of characters instead of parsing it as go data.
+	// TODO json header plus content of the result file, json header must be a line
+	//      the header must at least store the number of lines
+	_, err0 := myfile.WriteString(fmt.Sprintf("%d %d\n", inp.SyscallNumber, inp.SyscallArg)) // TODO
+	_, err1 := myfile.Write(inp.SyscallResults)                                              // TODO
+	err2 := myfile.Close()
+	if err0 != nil || err1 != nil || err2 != nil {
+		log.Logf(0, "\033[1m\033[38;2;255;0;0msome error???\033[0m", err)
+	}
+
 	return true
 }
 

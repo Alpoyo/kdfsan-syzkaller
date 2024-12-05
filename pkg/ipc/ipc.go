@@ -95,6 +95,13 @@ type CallInfo struct {
 type ProgInfo struct {
 	Calls []CallInfo
 	Extra CallInfo // stores Signal and Cover collected from background threads
+
+	// Alper
+	// syscall taint information
+	// TODO input program identifier?
+	SyscallNumber  uint32
+	SyscallArg     uint32
+	SyscallResults []byte
 }
 
 type Env struct {

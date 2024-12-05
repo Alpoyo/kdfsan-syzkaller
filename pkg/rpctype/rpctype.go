@@ -16,6 +16,11 @@ type RPCInput struct {
 	Prog   []byte
 	Signal signal.Serial
 	Cover  []uint32
+
+	// Alper
+	SyscallNumber  uint32
+	SyscallArg     uint32
+	SyscallResults []byte
 }
 
 type RPCCandidate struct {

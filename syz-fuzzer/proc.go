@@ -105,7 +105,12 @@ func (proc *Proc) loop() {
 }
 
 func (proc *Proc) triageInput(item *WorkTriage) {
+	// Alper
 	log.Logf(0, "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT triage called") // DELETE(Alper)
+	syscallNumber := uint32(1000000000)
+	syscallArg := uint32(1000000000)
+	syscallResults := []byte{97, 10}
+
 	log.Logf(1, "#%v: triaging type=%x", proc.pid, item.flags)
 
 	prio := signalPrio(item.p, &item.info, item.call)
@@ -146,11 +151,18 @@ func (proc *Proc) triageInput(item *WorkTriage) {
 			return
 		}
 		inputCover.Merge(thisCover)
+
+		// Alper
+		// TODO(Alper) merge taint results
+		syscallNumber = info.SyscallNumber
+		syscallArg = info.SyscallArg
+		syscallResults = info.SyscallResults
 	}
 	if item.flags&ProgMinimized == 0 {
 		item.p, item.call = prog.Minimize(item.p, item.call, false,
 			func(p1 *prog.Prog, call1 int) bool {
 				for i := 0; i < minimizeAttempts; i++ {
+					// TODO(Alper): do I want to save this taint information?
 					info := proc.execute(proc.execOptsNoCollide, p1, ProgNormal, StatMinimize)
 					if !reexecutionSuccess(info, &item.info, call1) {
 						// The call was not executed or failed.
@@ -170,11 +182,18 @@ func (proc *Proc) triageInput(item *WorkTriage) {
 
 	log.Logf(2, "added new input for %v to corpus:\n%s", logCallName, data)
 	log.Logf(0, "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG") // DELETE(Alper)
+	// TODO(Alper): fill in syscall data, also make them a slice or serialize it before this point
+	// TODO(Alper): new rpc for thingy
 	proc.fuzzer.sendInputToManager(rpctype.RPCInput{
 		Call:   callName,
 		Prog:   data,
 		Signal: inputSignal.Serialize(),
 		Cover:  inputCover.Serialize(),
+
+		// Alper
+		SyscallNumber:  syscallNumber,
+		SyscallArg:     syscallArg,
+		SyscallResults: syscallResults,
 	})
 
 	proc.fuzzer.addInputToCorpus(item.p, inputSignal, sig)
@@ -283,6 +302,9 @@ func (proc *Proc) enqueueCallTriage(p *prog.Prog, flags ProgTypes, callIndex int
 
 var tmpCtr = 0 ////
 
+// Alper
+var mycounter = 0
+
 func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.ProgInfo {
 	if opts.Flags&ipc.FlagDedupCover == 0 {
 		log.Fatalf("dedup cover is not enabled")
@@ -295,6 +317,19 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	// Limit concurrency window and do leak checking once in a while.
 	ticket := proc.fuzzer.gate.Enter()
 	defer proc.fuzzer.gate.Leave(ticket)
+
+	// Alper
+	// Generate random syscall taint config. This has to be called before the state save or it will not advance the
+	// rng internal state for the next execution.
+	// TODO(Alper): keep this automatically updated
+	var syscallNumbers = []int{90, 92, 85, 91, 268, 93, 260, 72, 62, 94, 265, 28, 149, 151, 9, 240, 71, 68, 70, 69, 150, 257, 82,
+		264, 84, 142, 66, 64, 106, 141, 114, 119, 117, 113, 105, 30, 31, 67, 29, 87, 263, 280}
+	var syscallArgs = []int{2, 3, 2, 2, 3, 3, 5, 3, 2, 3, 5, 3, 2, 1, 6, 4, 3, 2, 5, 4, 2, 4, 2, 4, 1, 2, 4, 3, 1, 3, 2, 3, 3, 2,
+		1, 3, 3, 1, 3, 1, 3, 4}
+	// TODO(Alper): make the rng work
+	syscallIdx := rand.Intn(len(syscallArgs))
+	syscallConfigNumber := syscallNumbers[syscallIdx]
+	syscallConfigArg := rand.Intn(syscallArgs[syscallIdx])
 
 	enableKdfsan := false
 	if tmpCtr != 0 { ////
@@ -316,15 +351,18 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 
 	// Alper
 	// Test the taint results logger
-	testMyResults := true
-	if testMyResults {
-		log.Logf(0, "*** Filling myresults with example data ***\n")
-		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/alper/example"); err != nil {
-			log.Logf(0, "Failed myresults example: %v", err)
+	if enableKdfsan {
+		testMyResults := true
+		if testMyResults {
+			log.Logf(0, "*** Filling myresults with example data ***\n")
+			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/alper/example"); err != nil {
+				log.Logf(0, "Failed myresults example: %v", err)
+			}
+			log.Logf(0, "*** proc.executeRaw: Example data filled ***\n")
 		}
-		log.Logf(0, "*** proc.executeRaw: Example data filled ***\n")
+		// List of possible configs
+		log.Logf(0, "IIIIIIIIIIIIIIIIIIIIIIIIIIIII %v %v\n", syscallConfigNumber, syscallConfigArg)
 	}
-	// TODO(Alper): randomly configure a syscall to taint
 
 	for try := 0; ; try++ {
 		atomic.AddUint64(&proc.fuzzer.stats[stat], 1)
@@ -342,13 +380,28 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 
 		// Alper
 		// Read the kdfsan taint results before the snapshot is restored
-		data, err2 := os.ReadFile("/sys/kernel/debug/alper/results")
-		if err2 != nil {
-			log.Logf(0, "Failed to read /sys/kernel/debug/alper/results: %v", err2)
+		if enableKdfsan {
+			data, err2 := os.ReadFile("/sys/kernel/debug/alper/results")
+			if err2 != nil {
+				log.Logf(0, "Failed to read /sys/kernel/debug/alper/results: %v", err2)
+			} else {
+				// TODO store data into info
+				//log.Logf(0, "data: %v", string(data)) // print the results file
+				info.SyscallNumber = uint32(syscallConfigNumber)
+				info.SyscallArg = uint32(syscallConfigArg)
+				info.SyscallResults = data
+			}
+			// Send taint log to manager before snapshot restore
+			proc.fuzzer.sendTaintToManager(rpctype.RPCInput{
+				SyscallNumber:  info.SyscallNumber,
+				SyscallArg:     info.SyscallArg,
+				SyscallResults: info.SyscallResults,
+			})
 		} else {
-			log.Logf(0, "data: %v", string(data))
+			info.SyscallNumber = uint32(1000000000)
+			info.SyscallArg = uint32(1000000000)
+			info.SyscallResults = []byte{98, 10}
 		}
-		log.Logf(0, "DELETE ME info: %v", len(info.Calls)) // DELETE(Alper)
 
 		if tmpCtr != 0 { ////
 			if enableKdfsan {
