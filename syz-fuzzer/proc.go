@@ -302,6 +302,7 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 
 	proc.logProgram(opts, p)
 
+	// MARK(Alper): this is where kdfsan is configured
 	if enableKdfsan {
 		log.Logf(0, "*** proc.executeRaw: Enabling Kdfsan... ***\n")
 		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/kdfsan/enable"); err != nil {

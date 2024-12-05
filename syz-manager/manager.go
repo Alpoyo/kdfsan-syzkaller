@@ -223,6 +223,7 @@ func RunManager(cfg *mgrconfig.Config, target *prog.Target, sysTarget *targets.T
 
 			log.Logf(0, "VMs %v, executed %v, cover %v, crashes %v, repro %v",
 				numFuzzing, executed, signal, crashes, numReproducing)
+			// MARK(Alper): log printing
 		}
 	}()
 
@@ -551,9 +552,12 @@ func (mgr *Manager) runInstance(index int) (*Crash, error) {
 
 	// If SyzExecutorCmd is provided, it means that syz-executor is already in
 	// the image, so no need to copy it.
+	// MARK(Alper): log me, syz-executor command
 	executorCmd := targets.Get(mgr.cfg.TargetOS, mgr.cfg.TargetArch).SyzExecutorCmd
+	log.Logf(0, "AAAAAAAAAAA %v", executorCmd)
 	if executorCmd == "" {
 		executorCmd, err = inst.Copy(mgr.cfg.SyzExecutorBin)
+		log.Logf(0, "BBBBBBBBBBB %v", executorCmd)
 		if err != nil {
 			return nil, fmt.Errorf("failed to copy binary: %v", err)
 		}
@@ -1108,6 +1112,7 @@ type InstSnapInfo struct {
 
 func (mgr *Manager) sendMonitorCmd(vmName string, cmd string) {
 	//log.Logf(1, "************ (%v) manager.sendMonitorCmd: sending command '%s' to monitior at socket %s ************\n", vmName, cmd, instsMap[vmName].monPath)
+	// MARK(Alper): enable this log and see what happens?
 	failCount := 0
 	const maxFailCount = 2
 	for {
