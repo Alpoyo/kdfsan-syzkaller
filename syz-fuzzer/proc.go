@@ -352,7 +352,7 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	// Alper
 	// Test the taint results logger
 	if enableKdfsan {
-		testMyResults := true
+		testMyResults := false
 		if testMyResults {
 			log.Logf(0, "*** Filling myresults with example data ***\n")
 			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/alper/example"); err != nil {
@@ -360,7 +360,17 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 			}
 			log.Logf(0, "*** proc.executeRaw: Example data filled ***\n")
 		}
-		// List of possible configs
+		// Forward the config
+		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", fmt.Sprintf("echo %v > /sys/kernel/debug/alper/syscall_config_syscall", syscallConfigNumber)); err != nil {
+			log.Logf(0, "Failed setting syscall nr: %v", err)
+		}
+		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", fmt.Sprintf("echo %v > /sys/kernel/debug/alper/syscall_config_arg", syscallConfigArg)); err != nil {
+			log.Logf(0, "Failed setting syscall nr: %v", err)
+		}
+		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/alper/syscall_config_commit"); err != nil {
+			log.Logf(0, "Failed commiting syscall config: %v", err)
+		}
+
 		log.Logf(0, "IIIIIIIIIIIIIIIIIIIIIIIIIIIII %v %v\n", syscallConfigNumber, syscallConfigArg)
 	}
 

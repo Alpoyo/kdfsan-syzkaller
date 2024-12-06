@@ -554,10 +554,8 @@ func (mgr *Manager) runInstance(index int) (*Crash, error) {
 	// the image, so no need to copy it.
 	// MARK(Alper): log me, syz-executor command
 	executorCmd := targets.Get(mgr.cfg.TargetOS, mgr.cfg.TargetArch).SyzExecutorCmd
-	log.Logf(0, "AAAAAAAAAAA %v", executorCmd) // DELETE(Alper)
 	if executorCmd == "" {
 		executorCmd, err = inst.Copy(mgr.cfg.SyzExecutorBin)
-		log.Logf(0, "BBBBBBBBBBB %v", executorCmd) // DELETE(Alper)
 		if err != nil {
 			return nil, fmt.Errorf("failed to copy binary: %v", err)
 		}
@@ -1080,8 +1078,6 @@ func (mgr *Manager) newTaintResult(inp rpctype.RPCInput, sign signal.Signal) boo
 	//  - delineation between inputs
 	var taintDbFilename = "myresults.txt"
 	var taintDbPath = filepath.Join(mgr.cfg.Workdir, taintDbFilename)
-	log.Logf(0, "\u001B[38;2;255;205;0mFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF\u001B[0m") // DELETE(Alper)
-	log.Logf(0, "\033[38;2;255;205;0m%v\033[0m", taintDbPath)
 	myfile, err := os.OpenFile(taintDbPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Logf(0, "\033[1m\033[38;2;255;0;0mError opening file: %v\033[0m", err)
