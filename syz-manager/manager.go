@@ -1086,8 +1086,8 @@ func (mgr *Manager) newTaintResult(inp rpctype.RPCInput, sign signal.Signal) boo
 	// so just handle it as a series of characters instead of parsing it as go data.
 	// TODO json header plus content of the result file, json header must be a line
 	//      the header must at least store the number of lines
-	_, err0 := myfile.WriteString(fmt.Sprintf("%d %d\n", inp.SyscallNumber, inp.SyscallArg)) // TODO
-	_, err1 := myfile.Write(inp.SyscallResults)                                              // TODO
+	_, err0 := myfile.WriteString(fmt.Sprintf("start %d %d\n", inp.SyscallNumber, inp.SyscallArg)) // TODO
+	_, err1 := myfile.Write(inp.SyscallResults)                                                    // TODO
 	err2 := myfile.Close()
 	if err0 != nil || err1 != nil || err2 != nil {
 		log.Logf(0, "\033[1m\033[38;2;255;0;0msome error???\033[0m", err)
