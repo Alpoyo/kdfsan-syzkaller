@@ -318,6 +318,8 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	ticket := proc.fuzzer.gate.Enter()
 	defer proc.fuzzer.gate.Leave(ticket)
 
+	log.Logf(0, "\033[38;2;255;205;0mJJJJJJJJJJJJJJJJJ tmpCtr = %v\033[0m\n", tmpCtr)
+
 	// Alper
 	// Generate random syscall taint config. This has to be called before the state save or it will not advance the
 	// rng internal state for the next execution.
@@ -331,12 +333,24 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	syscallConfigNumber := syscallNumbers[syscallIdx]
 	syscallConfigArg := rand.Intn(syscallArgs[syscallIdx])
 
+	// Alper
+	// We want to do 8 batches of normal syzkaller iterations followed by 8
+	// iterations with kdfsan enabled. We need the first 8 iterations so that
+	// the fuzzer can find new inputs with greater coverage. The snapshot save
+	// happens after 8 normal iterations have been completed and the restore
+	// happens after 8 kdfsan iterations have happened.
+	var doKdfsanIter = mycounter >= 8
+	var doSave = mycounter == 8
+	var doRestore = mycounter == 15
 	enableKdfsan := false
-	if tmpCtr != 0 { ////
-		log.Logf(0, "*** proc.executeRaw: Requesting snapshot save... ***\n")
-		enableKdfsan = proc.fuzzer.cmdManagerToSaveSnapshot()
-		log.Logf(0, "*** proc.executeRaw: Snapshot taken! Returned enableKdfsan: %t ***\n", enableKdfsan)
-	}
+	// TODO . . . . .
+	log.Logf(0, "*** proc.executeRaw: Requesting snapshot save... ***\n")
+	enableKdfsan = proc.fuzzer.cmdManagerToSaveSnapshot()
+	log.Logf(0, "*** proc.executeRaw: Snapshot taken! Returned enableKdfsan: %t ***\n", enableKdfsan)
+
+	// Alper
+	// Zero the counter here if a restore was triggered
+	// TODO . . . . . .
 
 	proc.logProgram(opts, p)
 
@@ -413,7 +427,8 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 			info.SyscallResults = []byte{98, 10}
 		}
 
-		if tmpCtr != 0 { ////
+		if tmpCtr > 100 { ////
+			//if tmpCtr != 0 { ////
 			if enableKdfsan {
 				log.Logf(0, "*** proc.executeRaw: Finished test WITH Kdfsan! Requesting snapshot load... ***\n")
 				proc.fuzzer.cmdManagerToLoadSnapshot()
@@ -423,6 +438,9 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 			}
 		}
 		tmpCtr++ ////
+
+		// Alper
+		mycounter++
 
 		return info
 	}
