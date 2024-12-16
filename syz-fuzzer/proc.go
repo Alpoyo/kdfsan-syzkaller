@@ -462,7 +462,7 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 			if err != nil {
 				log.Logf(0, "Failed to read /sys/kernel/debug/alper/mylog: %v", err)
 			}
-			log.Logf(0, "\033[38;2;0;150;255mMYLOG%v\033[0m", string(data))
+			log.Logf(0, "\033[38;2;0;150;255mMYLOG\n%v\033[0m", string(data))
 			_, err = os.ReadFile("/sys/kernel/debug/alper/mylog_clear")
 			if err != nil {
 				log.Logf(0, "Failed to read /sys/kernel/debug/alper/mylog_clear: %v", err)
