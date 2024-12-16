@@ -1069,13 +1069,13 @@ func (mgr *Manager) newInput(inp rpctype.RPCInput, sign signal.Signal) bool {
 }
 
 // Alper
+var inputcounter = 0 // TODO DELETE ME
+
 func (mgr *Manager) newTaintResult(inp rpctype.RPCInput, sign signal.Signal) bool {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
 	// Add taint data to my database
-	// TODO(Alper): make it work
-	//  - delineation between inputs
 	var taintDbFilename = "myresults.txt"
 	var taintDbPath = filepath.Join(mgr.cfg.Workdir, taintDbFilename)
 	myfile, err := os.OpenFile(taintDbPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -1086,12 +1086,33 @@ func (mgr *Manager) newTaintResult(inp rpctype.RPCInput, sign signal.Signal) boo
 	// so just handle it as a series of characters instead of parsing it as go data.
 	// TODO json header plus content of the result file, json header must be a line
 	//      the header must at least store the number of lines
-	_, err0 := myfile.WriteString(fmt.Sprintf("start %d %d\n", inp.SyscallNumber, inp.SyscallArg)) // TODO
-	_, err1 := myfile.Write(inp.SyscallResults)                                                    // TODO
+	_, err0 := myfile.WriteString(fmt.Sprintf("start %d %d\n", inp.SyscallNumber, inp.SyscallArg))
+	_, err3 := myfile.WriteString(fmt.Sprintf("%s\n", inp.InputProgram))
+	_, err4 := myfile.WriteString(fmt.Sprintf("input program index %d\n", inputcounter))
+	_, err1 := myfile.Write(inp.SyscallResults)
 	err2 := myfile.Close()
-	if err0 != nil || err1 != nil || err2 != nil {
+	if err0 != nil || err1 != nil || err2 != nil || err3 != nil || err4 != nil {
 		log.Logf(0, "\033[1m\033[38;2;255;0;0msome error???\033[0m", err)
 	}
+
+	// Save input program belonging to this taint session, create the dir if it doesn't exist yet.
+	inputProgDir := filepath.Join(mgr.cfg.Workdir, "myinputs")
+	_, dirErr := os.Stat(inputProgDir)
+	if dirErr != nil {
+		os.Mkdir(inputProgDir, 0700)
+	}
+	inputFilename := fmt.Sprintf("myinput%d.bin", inputcounter)
+	inputPath := filepath.Join(inputProgDir, inputFilename)
+	file, err := os.Create(inputPath)
+	if err != nil {
+		log.Logf(0, "Error creating file: %v", err)
+	}
+	defer file.Close()
+	_, err = file.Write(inp.InputProgram2)
+	if err != nil {
+		log.Logf(0, "Error writing to file: %v", err)
+	}
+	inputcounter++ // TODO alper
 
 	return true
 }

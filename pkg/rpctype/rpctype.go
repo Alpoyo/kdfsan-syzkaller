@@ -21,6 +21,8 @@ type RPCInput struct {
 	SyscallNumber  uint32
 	SyscallArg     uint32
 	SyscallResults []byte
+	InputProgram   string
+	InputProgram2  []byte
 }
 
 type RPCCandidate struct {

@@ -102,6 +102,7 @@ type ProgInfo struct {
 	SyscallNumber  uint32
 	SyscallArg     uint32
 	SyscallResults []byte
+	InputProgram   string
 }
 
 type Env struct {
