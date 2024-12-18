@@ -1075,6 +1075,9 @@ func (mgr *Manager) newTaintResult(inp rpctype.RPCInput, sign signal.Signal) boo
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
+	// Define my config
+	const doMylog = true
+
 	// Add taint data to my database
 	var taintDbFilename = "myresults.txt"
 	var taintDbPath = filepath.Join(mgr.cfg.Workdir, taintDbFilename)
@@ -1089,6 +1092,12 @@ func (mgr *Manager) newTaintResult(inp rpctype.RPCInput, sign signal.Signal) boo
 	_, err0 := myfile.WriteString(fmt.Sprintf("start %d %d\n", inp.SyscallNumber, inp.SyscallArg))
 	_, err3 := myfile.WriteString(fmt.Sprintf("%s\n", inp.InputProgram))
 	_, err4 := myfile.WriteString(fmt.Sprintf("input program index %d\n", inputcounter))
+	if doMylog {
+		_, err5 := myfile.WriteString(fmt.Sprintf("MyLog\n%v", inp.MyLog))
+		if err5 != nil {
+			log.Logf(0, "\033[1m\033[38;2;255;0;0msome error???\033[0m", err5)
+		}
+	}
 	_, err1 := myfile.Write(inp.SyscallResults)
 	err2 := myfile.Close()
 	if err0 != nil || err1 != nil || err2 != nil || err3 != nil || err4 != nil {

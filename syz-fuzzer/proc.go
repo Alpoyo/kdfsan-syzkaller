@@ -397,7 +397,6 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 
 		//log.Logf(0, "IIIIIIIIIIIIIIIIIIIIIIIIIIIII %v %v\n", syscallConfigNumber, syscallConfigArg)
 	}
-	// TODO log normal iter vs kdfsan iter, different colors
 
 	for try := 0; ; try++ {
 		atomic.AddUint64(&proc.fuzzer.stats[stat], 1)
@@ -414,13 +413,27 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 		log.Logf(2, "result hanged=%v: %s", hanged, output)
 
 		// Alper
+		// Print the log during this execution
+		mylogStr := ""
+		if doMylog {
+			mylogData, err := os.ReadFile("/sys/kernel/debug/alper/mylog")
+			if err != nil {
+				log.Logf(0, "Failed to read /sys/kernel/debug/alper/mylog: %v", err)
+			}
+			mylogStr = string(mylogData)
+			log.Logf(0, "\033[38;2;0;150;255mMYLOG\n%v\033[0m", mylogStr)
+			_, err = os.ReadFile("/sys/kernel/debug/alper/mylog_clear")
+			if err != nil {
+				log.Logf(0, "Failed to read /sys/kernel/debug/alper/mylog_clear: %v", err)
+			}
+		}
 		// Read the kdfsan taint results before the snapshot is restored
 		if doKdfsanIter {
 			// Disable tainted syscalls
-			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", fmt.Sprintf("echo 0 > /sys/kernel/debug/alper/syscall_config_syscall")); err != nil {
+			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", fmt.Sprintf("echo -1 > /sys/kernel/debug/alper/syscall_config_syscall")); err != nil {
 				log.Logf(0, "Failed setting syscall nr: %v", err)
 			}
-			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", fmt.Sprintf("echo 0 > /sys/kernel/debug/alper/syscall_config_arg")); err != nil {
+			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", fmt.Sprintf("echo -1 > /sys/kernel/debug/alper/syscall_config_arg")); err != nil {
 				log.Logf(0, "Failed setting syscall nr: %v", err)
 			}
 			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/alper/syscall_config_commit"); err != nil {
@@ -449,24 +462,12 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 				SyscallResults: info.SyscallResults,
 				InputProgram:   inputProgStr,
 				InputProgram2:  p.Serialize(),
+				MyLog:          mylogStr,
 			})
 		} else {
 			info.SyscallNumber = uint32(1000000000)
 			info.SyscallArg = uint32(1000000000)
 			info.SyscallResults = []byte{98, 10}
-		}
-
-		// Print the log during this execution
-		if doMylog {
-			data, err := os.ReadFile("/sys/kernel/debug/alper/mylog")
-			if err != nil {
-				log.Logf(0, "Failed to read /sys/kernel/debug/alper/mylog: %v", err)
-			}
-			log.Logf(0, "\033[38;2;0;150;255mMYLOG\n%v\033[0m", string(data))
-			_, err = os.ReadFile("/sys/kernel/debug/alper/mylog_clear")
-			if err != nil {
-				log.Logf(0, "Failed to read /sys/kernel/debug/alper/mylog_clear: %v", err)
-			}
 		}
 
 		// TODO only for debug

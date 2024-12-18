@@ -23,6 +23,7 @@ type RPCInput struct {
 	SyscallResults []byte
 	InputProgram   string
 	InputProgram2  []byte
+	MyLog          string
 }
 
 type RPCCandidate struct {
