@@ -455,15 +455,18 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 				log.Logf(0, "Failed to read /sys/kernel/debug/alper/clear: %v", err3)
 			}
 
-			// Send taint log to manager before snapshot restore
-			proc.fuzzer.sendTaintToManager(rpctype.RPCInput{
-				SyscallNumber:  info.SyscallNumber,
-				SyscallArg:     info.SyscallArg,
-				SyscallResults: info.SyscallResults,
-				InputProgram:   inputProgStr,
-				InputProgram2:  p.Serialize(),
-				MyLog:          mylogStr,
-			})
+			// Send taint log to manager before snapshot restore, if there was any taint
+			log.Logf(0, "\033[38;2;255;255;0m%v\033[0m\n", string(data)) // TODO DELETE ME
+			if string(data) != "Empty\n" {
+				proc.fuzzer.sendTaintToManager(rpctype.RPCInput{
+					SyscallNumber:  info.SyscallNumber,
+					SyscallArg:     info.SyscallArg,
+					SyscallResults: info.SyscallResults,
+					InputProgram:   inputProgStr,
+					InputProgram2:  p.Serialize(),
+					MyLog:          mylogStr,
+				})
+			}
 		} else {
 			info.SyscallNumber = uint32(1000000000)
 			info.SyscallArg = uint32(1000000000)
