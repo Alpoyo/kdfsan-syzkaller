@@ -1093,7 +1093,7 @@ func (mgr *Manager) newTaintResult(inp rpctype.RPCInput, sign signal.Signal) boo
 	_, err3 := myfile.WriteString(fmt.Sprintf("%s\n", inp.InputProgram))
 	_, err4 := myfile.WriteString(fmt.Sprintf("input program index %d\n", inputcounter))
 	if doMylog {
-		_, err5 := myfile.WriteString(fmt.Sprintf("MyLog\n%v", inp.MyLog))
+		_, err5 := myfile.WriteString(fmt.Sprintf("MyLog\n%v\nMyLogEnd\n", inp.MyLog))
 		if err5 != nil {
 			log.Logf(0, "\033[1m\033[38;2;255;0;0msome error???\033[0m", err5)
 		}

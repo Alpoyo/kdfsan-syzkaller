@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"runtime/debug"
+	"strconv"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -310,6 +311,7 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	// Alper
 	// Define constants
 	const doMylog = true
+	const doResults = true
 
 	// Ensures rpc calls unrelated to snapshotting are not made during testing
 	proc.fuzzer.rpcMu.Lock()
@@ -327,10 +329,13 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 		264, 84, 142, 66, 64, 106, 141, 114, 119, 117, 113, 105, 30, 31, 67, 29, 87, 263, 280}
 	var syscallArgs = []int{2, 3, 2, 2, 3, 3, 5, 3, 2, 3, 5, 3, 2, 1, 6, 4, 3, 2, 5, 4, 2, 4, 2, 4, 1, 2, 4, 3, 1, 3, 2, 3, 3, 2,
 		1, 3, 3, 1, 3, 1, 3, 4}
-	// TODO(Alper): make the rng work
-	syscallIdx := rand.Intn(len(syscallArgs))
+	syscallIdx := proc.rnd.Intn(len(syscallArgs))
 	syscallConfigNumber := syscallNumbers[syscallIdx]
-	syscallConfigArg := rand.Intn(syscallArgs[syscallIdx])
+	syscallConfigArg := proc.rnd.Intn(syscallArgs[syscallIdx])
+
+	// Just creat
+	syscallConfigNumber = 85            // TODO DELETE ME
+	syscallConfigArg = proc.rnd.Intn(2) // TODO DELETE ME
 
 	// Alper
 	// We want to do 8 batches of normal syzkaller iterations followed by 8
@@ -430,10 +435,10 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 		// Read the kdfsan taint results before the snapshot is restored
 		if doKdfsanIter {
 			// Disable tainted syscalls
-			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", fmt.Sprintf("echo -1 > /sys/kernel/debug/alper/syscall_config_syscall")); err != nil {
+			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "echo 0xffffffffffffffff > /sys/kernel/debug/alper/syscall_config_syscall"); err != nil {
 				log.Logf(0, "Failed setting syscall nr: %v", err)
 			}
-			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", fmt.Sprintf("echo -1 > /sys/kernel/debug/alper/syscall_config_arg")); err != nil {
+			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "echo 0xffffffffffffffff > /sys/kernel/debug/alper/syscall_config_arg"); err != nil {
 				log.Logf(0, "Failed setting syscall nr: %v", err)
 			}
 			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/alper/syscall_config_commit"); err != nil {
@@ -456,8 +461,11 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 			}
 
 			// Send taint log to manager before snapshot restore, if there was any taint
-			log.Logf(0, "\033[38;2;255;255;0m%v\033[0m\n", string(data)) // TODO DELETE ME
-			if string(data) != "Empty\n" {
+			if doResults {
+				log.Logf(0, "\033[38;2;255;255;0m%v\033[0m\n", string(data))
+			}
+			myresult_count, errParse := strconv.ParseInt(string(data[21:29]), 16, 32)
+			if myresult_count > 0 && errParse == nil {
 				proc.fuzzer.sendTaintToManager(rpctype.RPCInput{
 					SyscallNumber:  info.SyscallNumber,
 					SyscallArg:     info.SyscallArg,
