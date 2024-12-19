@@ -312,6 +312,7 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	// Define constants
 	const doMylog = true
 	const doResults = true
+	const doCreatOnly = false
 
 	// Ensures rpc calls unrelated to snapshotting are not made during testing
 	proc.fuzzer.rpcMu.Lock()
@@ -334,8 +335,10 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	syscallConfigArg := proc.rnd.Intn(syscallArgs[syscallIdx])
 
 	// Just creat
-	syscallConfigNumber = 85            // TODO DELETE ME
-	syscallConfigArg = proc.rnd.Intn(2) // TODO DELETE ME
+	if doCreatOnly {
+		syscallConfigNumber = 85
+		syscallConfigArg = proc.rnd.Intn(2)
+	}
 
 	// Alper
 	// We want to do 8 batches of normal syzkaller iterations followed by 8
