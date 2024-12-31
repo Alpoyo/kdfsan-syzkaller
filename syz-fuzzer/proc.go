@@ -350,6 +350,12 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	var doSave = mycounter == 8
 	var doRestore = mycounter == 15
 	var syscallConfigLayer = mycounter - 8
+	// In case fast flush is on
+	doKdfsanIter = true
+	doSave = false
+	doRestore = false
+	syscallConfigLayer = 0
+
 	enableKdfsan := false // true if we run in context outside restored flow
 	if doSave {
 		log.Logf(0, "\u001B[38;2;255;0;255m*** proc.executeRaw: Requesting snapshot save... ***\033[0m\n")
@@ -402,8 +408,6 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/alper/syscall_config_commit"); err != nil {
 			log.Logf(0, "Failed commiting syscall config: %v", err)
 		}
-
-		//log.Logf(0, "IIIIIIIIIIIIIIIIIIIIIIIIIIIII %v %v\n", syscallConfigNumber, syscallConfigArg)
 	}
 
 	for try := 0; ; try++ {
@@ -442,10 +446,16 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 				log.Logf(0, "Failed setting syscall nr: %v", err)
 			}
 			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "echo 0xffffffffffffffff > /sys/kernel/debug/alper/syscall_config_arg"); err != nil {
-				log.Logf(0, "Failed setting syscall nr: %v", err)
+				log.Logf(0, "Failed setting syscall arg: %v", err)
+			}
+			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "echo 0xffffffffffffffff > /sys/kernel/debug/alper/syscall_config_layer"); err != nil {
+				log.Logf(0, "Failed setting syscall layer: %v", err)
 			}
 			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/alper/syscall_config_commit"); err != nil {
 				log.Logf(0, "Failed commiting syscall config: %v", err)
+			}
+			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/alper/flush"); err != nil {
+				log.Logf(0, "Failed flushing shadow mem: %v", err)
 			}
 
 			// Read and clear the results file
