@@ -537,6 +537,7 @@ func (mgr *Manager) runInstance(index int) (*Crash, error) {
 		snapshotOpFinished: false,
 		snapshotOpFailed:   make(chan bool),
 	}
+	// TODO(Alper): add a mutex lock in the defer stack?
 	defer delete(instsMap, vmStr) // instsMap[vmStr] should be deleted after the inst.Close operation, otherwise an RPC call could access deleted mem; hence this defer comes first
 	defer inst.Close()
 
