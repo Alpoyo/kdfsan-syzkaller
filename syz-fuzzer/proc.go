@@ -312,7 +312,7 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	// Define constants
 	const doMylog = true
 	const doResults = true
-	const doCreatOnly = false
+	const doSyscallOnly = -1
 
 	// Ensures rpc calls unrelated to snapshotting are not made during testing
 	proc.fuzzer.rpcMu.Lock()
@@ -335,9 +335,16 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	syscallConfigArg := proc.rnd.Intn(syscallArgs[syscallIdx])
 
 	// Just creat
-	if doCreatOnly {
-		syscallConfigNumber = 85
-		syscallConfigArg = proc.rnd.Intn(2)
+	if doSyscallOnly != -1 {
+		syscallConfigNumber = doSyscallOnly
+		syscallIdx = 0
+		for i := 0; i < len(syscallNumbers); i++ {
+			if syscallNumbers[i] == doSyscallOnly {
+				syscallIdx = i
+				break
+			}
+		}
+		syscallConfigArg = proc.rnd.Intn(syscallArgs[syscallIdx])
 	}
 
 	// Alper
