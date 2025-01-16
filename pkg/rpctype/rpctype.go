@@ -64,6 +64,12 @@ type NewInputArgs struct {
 	RPCInput
 }
 
+type NewAttempt struct {
+	// Alper
+	SyscallNumber uint32
+	SyscallArg    uint32
+}
+
 type PollArgs struct {
 	Name           string
 	NeedCandidates bool

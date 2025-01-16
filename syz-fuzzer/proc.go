@@ -313,6 +313,7 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	const doMylog = true
 	const doResults = true
 	const doSyscallOnly = -1
+	const doVerbose = true
 
 	// Ensures rpc calls unrelated to snapshotting are not made during testing
 	proc.fuzzer.rpcMu.Lock()
@@ -333,6 +334,10 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	syscallIdx := proc.rnd.Intn(len(syscallArgs))
 	syscallConfigNumber := syscallNumbers[syscallIdx]
 	syscallConfigArg := proc.rnd.Intn(syscallArgs[syscallIdx])
+
+	if doVerbose {
+		log.Logf(0, "EEEE syscall config %v %v", syscallConfigNumber, syscallConfigArg)
+	}
 
 	// Just creat
 	if doSyscallOnly != -1 {
@@ -493,6 +498,11 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 					InputProgram:   inputProgStr,
 					InputProgram2:  p.Serialize(),
 					MyLog:          mylogStr,
+				})
+			} else {
+				proc.fuzzer.sendAttemptToManager(rpctype.NewAttempt{
+					SyscallNumber: info.SyscallNumber,
+					SyscallArg:    info.SyscallArg,
 				})
 			}
 		} else {

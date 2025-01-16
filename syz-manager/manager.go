@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -220,9 +221,13 @@ func RunManager(cfg *mgrconfig.Config, target *prog.Target, sysTarget *targets.T
 			mgr.mu.Unlock()
 			numReproducing := atomic.LoadUint32(&mgr.numReproducing)
 			numFuzzing := atomic.LoadUint32(&mgr.numFuzzing)
+			numHits := 0
+			for i := 0; i < len(syscallHits); i++ {
+				numHits += syscallHits[i]
+			}
 
-			log.Logf(0, "VMs %v, executed %v, cover %v, crashes %v, repro %v",
-				numFuzzing, executed, signal, crashes, numReproducing)
+			log.Logf(0, "VMs %v, executed %v, cover %v, crashes %v, repro %v, taintHits %v",
+				numFuzzing, executed, signal, crashes, numReproducing, numHits)
 			// MARK(Alper): log printing
 		}
 	}()
@@ -1072,9 +1077,33 @@ func (mgr *Manager) newInput(inp rpctype.RPCInput, sign signal.Signal) bool {
 // Alper
 var inputcounter = 0 // TODO DELETE ME
 
+var syscallNumbers = []int{90, 92, 85, 91, 268, 93, 260, 72, 62, 94, 265, 28, 149, 151, 9, 240, 71, 68, 70, 69, 150, 257, 82,
+	264, 84, 142, 66, 64, 106, 141, 114, 119, 117, 113, 105, 30, 31, 67, 29, 87, 263, 280}
+var syscallToIdx = map[int]int{90: 0, 92: 1, 85: 2, 91: 3, 268: 4, 93: 5, 260: 6, 72: 7, 62: 8, 94: 9, 265: 10, 28: 11,
+	149: 12, 151: 13, 9: 14, 240: 15, 71: 16, 68: 17, 70: 18, 69: 19, 150: 20, 257: 21, 82: 22, 264: 23, 84: 24,
+	142: 25, 66: 26, 64: 27, 106: 28, 141: 29, 114: 30, 119: 31, 117: 32, 113: 33, 105: 34, 30: 35, 31: 36, 67: 37,
+	29: 38, 87: 39, 263: 40, 280: 41}
+var syscallArgs = []int{2, 3, 2, 2, 3, 3, 5, 3, 2, 3, 5, 3, 2, 1, 6, 4, 3, 2, 5, 4, 2, 4, 2, 4, 1, 2, 4, 3, 1, 3, 2, 3,
+	3, 2, 1, 3, 3, 1, 3, 1, 3, 4}
+var syscallToFlat = []int{0, 2, 5, 7, 9, 12, 15, 20, 23, 25, 28, 33, 36, 38, 39, 45, 49, 52, 54, 59, 63, 65, 69, 71, 75,
+	76, 78, 82, 85, 86, 89, 91, 94, 97, 99, 100, 103, 106, 107, 110, 111, 114}
+var syscallAttempts = []int{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+var syscallHits = []int{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+
 func (mgr *Manager) newTaintResult(inp rpctype.RPCInput, sign signal.Signal) bool {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
+
+	// Accumulate the results for the distribution
+	var configIdxFlat = syscallToFlat[syscallToIdx[int(inp.SyscallNumber)]] + int(inp.SyscallArg)
+	syscallAttempts[configIdxFlat] += 1
+	syscallHits[configIdxFlat] += 1
 
 	// Define my config
 	const doMylog = true
@@ -1088,8 +1117,6 @@ func (mgr *Manager) newTaintResult(inp rpctype.RPCInput, sign signal.Signal) boo
 	}
 	// The fuzzer doesn't have to be aware of any details from the results as it isn't guided by it
 	// so just handle it as a series of characters instead of parsing it as go data.
-	// TODO json header plus content of the result file, json header must be a line
-	//      the header must at least store the number of lines
 	_, err0 := myfile.WriteString(fmt.Sprintf("start %d %d\n", inp.SyscallNumber, inp.SyscallArg))
 	_, err3 := myfile.WriteString(fmt.Sprintf("%s\n", inp.InputProgram))
 	_, err4 := myfile.WriteString(fmt.Sprintf("input program index %d\n", inputcounter))
@@ -1123,9 +1150,49 @@ func (mgr *Manager) newTaintResult(inp rpctype.RPCInput, sign signal.Signal) boo
 		log.Logf(0, "Error writing to file: %v", err)
 	}
 	inputcounter++ // TODO alper
+	// TODO send the new distribution
 
 	return true
 }
+func (mgr *Manager) newTaintAttempt(inp rpctype.NewAttempt) bool {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+
+	// Accumulate the results for the distribution
+	var configIdxFlat = syscallToFlat[syscallToIdx[int(inp.SyscallNumber)]] + int(inp.SyscallArg)
+	syscallAttempts[configIdxFlat] += 1
+
+	var doSave = true
+	if doSave {
+		var distributionFilename = "myattempts.txt"
+		var distributionPath = filepath.Join(mgr.cfg.Workdir, distributionFilename)
+		myfile, err := os.OpenFile(distributionPath, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Logf(0, "\033[1m\033[38;2;255;0;0mError opening file: %v\033[0m", err)
+		}
+
+		// Write data
+		var bytesAttempts = make([]byte, len(syscallAttempts)*4)
+		for i := 0; i < len(syscallAttempts); i++ {
+			binary.LittleEndian.PutUint32(bytesAttempts[i*4:i*4+4], uint32(syscallAttempts[i]))
+		}
+		myfile.Write(bytesAttempts)
+		var bytesHits = make([]byte, len(syscallHits)*4)
+		for i := 0; i < len(syscallHits); i++ {
+			binary.LittleEndian.PutUint32(bytesHits[i*4:i*4+4], uint32(syscallHits[i]))
+		}
+		myfile.Write(bytesHits)
+
+		// Finalize
+		myfile.Close()
+	}
+
+	// TODO send the new distribution back to vm
+
+	return true
+}
+
+// TODO(Alper) new taint attempt
 
 func (mgr *Manager) candidateBatch(size int) []rpctype.RPCCandidate {
 	mgr.mu.Lock()

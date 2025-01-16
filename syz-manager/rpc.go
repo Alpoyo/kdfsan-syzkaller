@@ -54,6 +54,7 @@ type RPCManagerView interface {
 	machineChecked(result *rpctype.CheckArgs)
 	newInput(inp rpctype.RPCInput, sign signal.Signal) bool
 	newTaintResult(inp rpctype.RPCInput, sign signal.Signal) bool
+	newTaintAttempt(inp rpctype.NewAttempt) bool
 	candidateBatch(size int) []rpctype.RPCCandidate
 	rotateCorpus() bool
 	saveSnapshot(vmName string)
@@ -285,51 +286,16 @@ func (serv *RPCServer) NewInput(a *rpctype.NewInputArgs, r *int) error {
 
 func (serv *RPCServer) NewTaintResult(a *rpctype.NewInputArgs, r *int) error {
 	inputSignal := a.Signal.Deserialize()
-	//log.Logf(4, "new input from %v for syscall %v (signal=%v, cover=%v)",
-	//	a.Name, a.Call, inputSignal.Len(), len(a.Cover))
-	//if _, err := serv.target.Deserialize(a.RPCInput.Prog, prog.NonStrict); err != nil {
-	//	// This should not happen, but we see such cases episodically, reason unknown.
-	//	log.Logf(0, "failed to deserialize program from fuzzer: %v\n%s", err, a.RPCInput.Prog)
-	//	return nil
-	//}
-	//serv.mu.Lock()
-	//defer serv.mu.Unlock()
-	//
-	//f := serv.fuzzers[a.Name]
-	//genuine := !serv.corpusSignal.Diff(inputSignal).Empty()
-	//rotated := false
-	//if !genuine && f.rotatedSignal != nil {
-	//	rotated = !f.rotatedSignal.Diff(inputSignal).Empty()
-	//}
-	//if !genuine && !rotated {
-	//	return nil
-	//}
 	if !serv.mgr.newTaintResult(a.RPCInput, inputSignal) {
 		return nil
 	}
+	return nil
+}
 
-	//if f.rotatedSignal != nil {
-	//	f.rotatedSignal.Merge(inputSignal)
-	//}
-	//serv.corpusCover.Merge(a.Cover)
-	//serv.stats.corpusCover.set(len(serv.corpusCover))
-	//serv.stats.newInputs.inc()
-	//if rotated {
-	//	serv.stats.rotatedInputs.inc()
-	//}
-	//
-	//if genuine {
-	//	serv.corpusSignal.Merge(inputSignal)
-	//	serv.stats.corpusSignal.set(serv.corpusSignal.Len())
-	//
-	//	a.RPCInput.Cover = nil // Don't send coverage back to all fuzzers.
-	//	for _, other := range serv.fuzzers {
-	//		if other == f {
-	//			continue
-	//		}
-	//		other.inputs = append(other.inputs, a.RPCInput)
-	//	}
-	//}
+func (serv *RPCServer) NewTaintAttempt(a *rpctype.NewAttempt, r *int) error {
+	if !serv.mgr.newTaintAttempt(*a) {
+		return nil
+	}
 	return nil
 }
 
