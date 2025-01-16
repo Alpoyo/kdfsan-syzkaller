@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
 	"net"
 	"os"
@@ -135,6 +136,29 @@ func main() {
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
+
+	// Alper
+	// Attempt to load the database for attempts and hits
+	var distributionFilename = "myattempts.txt"
+	var distributionPath = filepath.Join(cfg.Workdir, distributionFilename)
+	myfile, err := os.OpenFile(distributionPath, os.O_RDONLY, 0644)
+	if err == nil {
+		defer myfile.Close()
+		myfileData, err := ioutil.ReadAll(myfile)
+		if err != nil {
+			log.Logf(0, "failed to read attempts/hits: %v\n", err)
+		}
+
+		for i := 0; i < 118; i++ {
+			syscallAttempts[i] = int(binary.LittleEndian.Uint32(myfileData[i*4 : i*4+4]))
+			syscallHits[i] = int(binary.LittleEndian.Uint32(myfileData[(i+118)*4 : (i+118)*4+4]))
+		}
+
+		// TODO debug print
+		log.Logf(0, "loaded Attempts: %v\n", syscallAttempts)
+		log.Logf(0, "loaded Hits: %v\n", syscallHits)
+	}
+
 	RunManager(cfg, target, sysTarget, syscalls)
 }
 
@@ -230,7 +254,8 @@ func RunManager(cfg *mgrconfig.Config, target *prog.Target, sysTarget *targets.T
 				numAttempts += syscallAttempts[i]
 			}
 
-			// Alper also log taint hit/attempts
+			// Alper
+			// also log taint hit/attempts
 			log.Logf(0, "VMs %v, executed %v, cover %v, crashes %v, repro %v, hits %v, attempts %v",
 				numFuzzing, executed, signal, crashes, numReproducing, numHits, numAttempts)
 		}
@@ -1079,8 +1104,6 @@ func (mgr *Manager) newInput(inp rpctype.RPCInput, sign signal.Signal) bool {
 }
 
 // Alper
-var inputcounter = 0 // TODO DELETE ME
-
 var syscallNumbers = []int{90, 92, 85, 91, 268, 93, 260, 72, 62, 94, 265, 28, 149, 151, 9, 240, 71, 68, 70, 69, 150, 257, 82,
 	264, 84, 142, 66, 64, 106, 141, 114, 119, 117, 113, 105, 30, 31, 67, 29, 87, 263, 280}
 var syscallToIdx = map[int]int{90: 0, 92: 1, 85: 2, 91: 3, 268: 4, 93: 5, 260: 6, 72: 7, 62: 8, 94: 9, 265: 10, 28: 11,
@@ -1094,6 +1117,10 @@ var syscallToFlat = []int{0, 2, 5, 7, 9, 12, 15, 20, 23, 25, 28, 33, 36, 38, 39,
 var syscallAttempts = [118]int{}
 var syscallHits = [118]int{}
 
+// Alper
+// Random state
+var rnd *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
+
 func (mgr *Manager) newTaintResult(inp rpctype.RPCInput, sign signal.Signal) bool {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
@@ -1106,6 +1133,9 @@ func (mgr *Manager) newTaintResult(inp rpctype.RPCInput, sign signal.Signal) boo
 	// Define my config
 	const doMylog = true
 
+	// Generate id for this taint result
+	inputProgramId := rnd.Uint64()
+
 	// Add taint data to my database
 	var taintDbFilename = "myresults.txt"
 	var taintDbPath = filepath.Join(mgr.cfg.Workdir, taintDbFilename)
@@ -1117,7 +1147,7 @@ func (mgr *Manager) newTaintResult(inp rpctype.RPCInput, sign signal.Signal) boo
 	// so just handle it as a series of characters instead of parsing it as go data.
 	_, err0 := myfile.WriteString(fmt.Sprintf("start %d %d\n", inp.SyscallNumber, inp.SyscallArg))
 	_, err3 := myfile.WriteString(fmt.Sprintf("%s\n", inp.InputProgram))
-	_, err4 := myfile.WriteString(fmt.Sprintf("input program index %d\n", inputcounter))
+	_, err4 := myfile.WriteString(fmt.Sprintf("input program index %d\n", inputProgramId))
 	if doMylog {
 		_, err5 := myfile.WriteString(fmt.Sprintf("MyLog\n%v\nMyLogEnd\n", inp.MyLog))
 		if err5 != nil {
@@ -1136,7 +1166,7 @@ func (mgr *Manager) newTaintResult(inp rpctype.RPCInput, sign signal.Signal) boo
 	if dirErr != nil {
 		os.Mkdir(inputProgDir, 0700)
 	}
-	inputFilename := fmt.Sprintf("myinput%d.bin", inputcounter)
+	inputFilename := fmt.Sprintf("myinput%d.bin", inputProgramId)
 	inputPath := filepath.Join(inputProgDir, inputFilename)
 	file, err := os.Create(inputPath)
 	if err != nil {
@@ -1147,8 +1177,6 @@ func (mgr *Manager) newTaintResult(inp rpctype.RPCInput, sign signal.Signal) boo
 	if err != nil {
 		log.Logf(0, "Error writing to file: %v", err)
 	}
-	inputcounter++ // TODO alper
-	// TODO send the new distribution
 
 	return true
 }
@@ -1176,6 +1204,7 @@ func (mgr *Manager) newTaintAttempt(inp rpctype.NewAttempt, r *[236]int) bool {
 		if err != nil {
 			log.Logf(0, "\033[1m\033[38;2;255;0;0mError opening file: %v\033[0m", err)
 		}
+		defer myfile.Close()
 
 		// Write data
 		var bytesAttempts = make([]byte, len(syscallAttempts)*4)
