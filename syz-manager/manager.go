@@ -153,11 +153,8 @@ func main() {
 			syscallAttempts[i] = int(binary.LittleEndian.Uint32(myfileData[i*4 : i*4+4]))
 			syscallHits[i] = int(binary.LittleEndian.Uint32(myfileData[(i+118)*4 : (i+118)*4+4]))
 		}
-
-		// TODO debug print
-		log.Logf(0, "loaded Attempts: %v\n", syscallAttempts)
-		log.Logf(0, "loaded Hits: %v\n", syscallHits)
 	}
+	// TODO warn if workdir is not deleted
 
 	RunManager(cfg, target, sysTarget, syscalls)
 }

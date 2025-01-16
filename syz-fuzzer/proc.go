@@ -4,14 +4,14 @@
 package main
 
 import (
-	"bytes"
+	//"bytes"
 	"fmt"
 	"math/rand"
 	"os"
 	"runtime/debug"
 	"strconv"
 	"sync/atomic"
-	"syscall"
+	//"syscall"
 	"time"
 
 	"github.com/google/syzkaller/pkg/cover"
@@ -327,10 +327,10 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 
 	// Alper
 	// Define constants
-	const doMylog = true
-	const doResults = true
-	const doSyscallOnly = -1
-	const doVerbose = true
+	const doMylog = false    // Default: false
+	const logResults = false // Default: false
+	const doSyscallOnly = -1 // Default: -1
+	const doVerbose = false  // Default: false
 
 	// Ensures rpc calls unrelated to snapshotting are not made during testing
 	proc.fuzzer.rpcMu.Lock()
@@ -343,14 +343,10 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	// Alper
 	// Generate random syscall taint config. This has to be called before the state save or it will not advance the
 	// rng internal state for the next execution.
-	// TODO(Alper): keep this automatically updated
+	// TODO importance sampling
 	syscallIdx := proc.rnd.Intn(len(syscallArgs))
 	syscallConfigNumber := syscallNumbers[syscallIdx]
 	syscallConfigArg := proc.rnd.Intn(syscallArgs[syscallIdx])
-
-	if doVerbose {
-		log.Logf(0, "EEEE syscall config %v %v", syscallConfigNumber, syscallConfigArg)
-	}
 
 	// Just creat
 	if doSyscallOnly != -1 {
@@ -365,43 +361,13 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 		syscallConfigArg = proc.rnd.Intn(syscallArgs[syscallIdx])
 	}
 
-	// Alper
-	// We want to do 8 batches of normal syzkaller iterations followed by 8
-	// iterations with kdfsan enabled. We need the first 8 iterations so that
-	// the fuzzer can find new inputs with greater coverage. The snapshot save
-	// happens after 8 normal iterations have been completed and the restore
-	// happens after 8 kdfsan iterations have happened.
-	var doKdfsanIter = mycounter >= 8
-	var doSave = mycounter == 8
-	var doRestore = mycounter == 15
-	var syscallConfigLayer = mycounter - 8
-	// In case fast flush is on
-	doKdfsanIter = true
-	doSave = false
-	doRestore = false
-	syscallConfigLayer = 0
-
-	enableKdfsan := false // true if we run in context outside restored flow
-	if doSave {
-		log.Logf(0, "\u001B[38;2;255;0;255m*** proc.executeRaw: Requesting snapshot save... ***\033[0m\n")
-		enableKdfsan = proc.fuzzer.cmdManagerToSaveSnapshot()
-		log.Logf(0, "*** proc.executeRaw: Snapshot taken! Returned enableKdfsan: %t ***\n", enableKdfsan)
-	}
-
-	// Alper
-	// Zero the counter here if a restore was triggered
-	if doSave && !enableKdfsan {
-		mycounter = 0
-		doKdfsanIter = false
-	}
-
+	// TODO is this optional?
 	proc.logProgram(opts, p)
 
 	// Alper
 	// check whether the tainted is present in the input program
 	// TODO . . .
 	var inputProgStr = "input program: "
-
 	for _, call := range p.Calls {
 		inputProgStr += call.Meta.CallName
 		inputProgStr += ", "
@@ -409,30 +375,24 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 
 	// MARK(Alper): this is where kdfsan is configured
 	//if enableKdfsan {
-	if doKdfsanIter {
-		log.Logf(0, "*** proc.executeRaw: Enabling Kdfsan... ***\n")
-		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/kdfsan/enable"); err != nil {
-			log.Logf(0, "Failed to enable Kdfsan: %v", err)
-		}
-		log.Logf(0, "*** proc.executeRaw: Kdfsan enabled ***\n")
+	// TODO(Alper): move to vm init or something
+	if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/kdfsan/enable"); err != nil {
+		log.Logf(0, "Failed to enable Kdfsan: %v", err)
 	}
 
 	// Alper
-	// Test the taint results logger
-	if doKdfsanIter {
-		// Forward the config
-		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", fmt.Sprintf("echo %v > /sys/kernel/debug/alper/syscall_config_syscall", syscallConfigNumber)); err != nil {
-			log.Logf(0, "Failed setting syscall nr: %v", err)
-		}
-		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", fmt.Sprintf("echo %v > /sys/kernel/debug/alper/syscall_config_arg", syscallConfigArg)); err != nil {
-			log.Logf(0, "Failed setting syscall nr: %v", err)
-		}
-		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", fmt.Sprintf("echo %v > /sys/kernel/debug/alper/syscall_config_layer", syscallConfigLayer)); err != nil {
-			log.Logf(0, "Failed setting syscall layer: %v", err)
-		}
-		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/alper/syscall_config_commit"); err != nil {
-			log.Logf(0, "Failed commiting syscall config: %v", err)
-		}
+	// Forward the config to kernel
+	if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", fmt.Sprintf("echo %v > /sys/kernel/debug/alper/syscall_config_syscall", syscallConfigNumber)); err != nil {
+		log.Logf(0, "Failed setting syscall nr: %v", err)
+	}
+	if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", fmt.Sprintf("echo %v > /sys/kernel/debug/alper/syscall_config_arg", syscallConfigArg)); err != nil {
+		log.Logf(0, "Failed setting syscall nr: %v", err)
+	}
+	if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", fmt.Sprintf("echo %v > /sys/kernel/debug/alper/syscall_config_layer", 0)); err != nil {
+		log.Logf(0, "Failed setting syscall layer: %v", err)
+	}
+	if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/alper/syscall_config_commit"); err != nil {
+		log.Logf(0, "Failed commiting syscall config: %v", err)
 	}
 
 	for try := 0; ; try++ {
@@ -464,140 +424,127 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 				log.Logf(0, "Failed to read /sys/kernel/debug/alper/mylog_clear: %v", err)
 			}
 		}
-		// Read the kdfsan taint results before the snapshot is restored
-		if doKdfsanIter {
-			// Disable tainted syscalls
-			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "echo 0xffffffffffffffff > /sys/kernel/debug/alper/syscall_config_syscall"); err != nil {
-				log.Logf(0, "Failed setting syscall nr: %v", err)
-			}
-			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "echo 0xffffffffffffffff > /sys/kernel/debug/alper/syscall_config_arg"); err != nil {
-				log.Logf(0, "Failed setting syscall arg: %v", err)
-			}
-			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "echo 0xffffffffffffffff > /sys/kernel/debug/alper/syscall_config_layer"); err != nil {
-				log.Logf(0, "Failed setting syscall layer: %v", err)
-			}
-			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/alper/syscall_config_commit"); err != nil {
-				log.Logf(0, "Failed commiting syscall config: %v", err)
-			}
-			if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/alper/flush"); err != nil {
-				log.Logf(0, "Failed flushing shadow mem: %v", err)
-			}
+		// Read the kdfsan taint results
+		// Disable tainted syscalls
+		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "echo 0xffffffffffffffff > /sys/kernel/debug/alper/syscall_config_syscall"); err != nil {
+			log.Logf(0, "Failed setting syscall nr: %v", err)
+		}
+		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "echo 0xffffffffffffffff > /sys/kernel/debug/alper/syscall_config_arg"); err != nil {
+			log.Logf(0, "Failed setting syscall arg: %v", err)
+		}
+		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "echo 0xffffffffffffffff > /sys/kernel/debug/alper/syscall_config_layer"); err != nil {
+			log.Logf(0, "Failed setting syscall layer: %v", err)
+		}
+		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/alper/syscall_config_commit"); err != nil {
+			log.Logf(0, "Failed commiting syscall config: %v", err)
+		}
+		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/alper/flush"); err != nil {
+			log.Logf(0, "Failed flushing shadow mem: %v", err)
+		}
 
-			// Read and clear the results file
-			data, err2 := os.ReadFile("/sys/kernel/debug/alper/results")
-			if err2 != nil {
-				log.Logf(0, "Failed to read /sys/kernel/debug/alper/results: %v", err2)
-			} else {
-				//log.Logf(0, "data: %v", string(data)) // print the results file
-				info.SyscallNumber = uint32(syscallConfigNumber)
-				info.SyscallArg = uint32(syscallConfigArg)
-				info.SyscallResults = data
-			}
-			_, err3 := os.ReadFile("/sys/kernel/debug/alper/clear")
-			if err3 != nil {
-				log.Logf(0, "Failed to read /sys/kernel/debug/alper/clear: %v", err3)
-			}
+		// Read and clear the results file
+		data, err2 := os.ReadFile("/sys/kernel/debug/alper/results")
+		if err2 != nil {
+			log.Logf(0, "Failed to read /sys/kernel/debug/alper/results: %v", err2)
+		} else {
+			//log.Logf(0, "data: %v", string(data)) // print the results file
+			info.SyscallNumber = uint32(syscallConfigNumber)
+			info.SyscallArg = uint32(syscallConfigArg)
+			info.SyscallResults = data
+		}
+		_, err3 := os.ReadFile("/sys/kernel/debug/alper/clear")
+		if err3 != nil {
+			log.Logf(0, "Failed to read /sys/kernel/debug/alper/clear: %v", err3)
+		}
 
-			// Send taint log to manager before snapshot restore, if there was any taint
-			if doResults {
-				log.Logf(0, "\033[38;2;255;255;0m%v\033[0m\n", string(data))
-			}
-			myresult_count, errParse := strconv.ParseInt(string(data[21:29]), 16, 32)
-			if myresult_count > 0 && errParse == nil {
-				proc.fuzzer.sendTaintToManager(rpctype.RPCInput{
-					SyscallNumber:  info.SyscallNumber,
-					SyscallArg:     info.SyscallArg,
-					SyscallResults: info.SyscallResults,
-					InputProgram:   inputProgStr,
-					InputProgram2:  p.Serialize(),
-					MyLog:          mylogStr,
+		// Send taint log to manager before snapshot restore, if there was any taint
+		if logResults {
+			log.Logf(0, "\033[38;2;255;255;0m%v\033[0m\n", string(data))
+		}
+		myresult_count, errParse := strconv.ParseInt(string(data[21:29]), 16, 32)
+		if myresult_count > 0 && errParse == nil {
+			proc.fuzzer.sendTaintToManager(rpctype.RPCInput{
+				SyscallNumber:  info.SyscallNumber,
+				SyscallArg:     info.SyscallArg,
+				SyscallResults: info.SyscallResults,
+				InputProgram:   inputProgStr,
+				InputProgram2:  p.Serialize(),
+				MyLog:          mylogStr,
+			})
+		} else {
+			var configFlat = syscallToFlat[syscallToIdx[syscallConfigNumber]] + syscallConfigArg
+			attemptBuffer[configFlat]++
+
+			const attemptCommInterval = 10
+			attemptCommCounter++
+			if attemptCommCounter >= attemptCommInterval {
+				/* Send attempt buffer and clear */
+				attemptCommCounter = 0
+				var r = proc.fuzzer.sendAttemptToManager(rpctype.NewAttempt{
+					Attempts: attemptBuffer,
 				})
-			} else {
-				var configFlat = syscallToFlat[syscallToIdx[syscallConfigNumber]] + syscallConfigArg
-				attemptBuffer[configFlat]++
-
-				const attemptCommInterval = 10
-				attemptCommCounter++
-				if attemptCommCounter >= attemptCommInterval {
-					/* Send attempt buffer and clear */
-					attemptCommCounter = 0
-					var r = proc.fuzzer.sendAttemptToManager(rpctype.NewAttempt{
-						Attempts: attemptBuffer,
-					})
-					for i := 0; i < len(attemptBuffer); i++ {
-						attemptBuffer[i] = 0
-						aggrAttempts[i] = r[i]
-						aggrHits[i] = r[i+118]
-					}
+				for i := 0; i < len(attemptBuffer); i++ {
+					attemptBuffer[i] = 0
+					aggrAttempts[i] = r[i]
+					aggrHits[i] = r[i+118]
 				}
 			}
-		} else {
-			info.SyscallNumber = uint32(1000000000)
-			info.SyscallArg = uint32(1000000000)
-			info.SyscallResults = []byte{98, 10}
 		}
-
-		// TODO only for debug
-		log.Logf(0, "\033[38;2;0;150;255m*** My counter %v ***\033[0m\n", mycounter)
-		if doKdfsanIter {
-			log.Logf(0, "\033[38;2;0;205;0m*** proc.executeRaw: Finished test WITH Kdfsan! ***\033[0m\n")
-		} else {
-			log.Logf(0, "\033[38;2;255;0;0m*** proc.executeRaw: Finished test WITHOUT Kdfsan! ***\033[0m\n")
-		}
-
-		if doRestore {
-			log.Logf(0, "\033[38;2;255;0;255m*** proc.executeRaw: Starting restore ***\033[0m\n")
-			proc.fuzzer.cmdManagerToLoadSnapshot()
-			log.Fatalf("cmdManagerToLoadSnapshot should not return")
-		}
-
-		// Alper
-		mycounter++
 
 		return info
 	}
 }
 
 func (proc *Proc) logProgram(opts *ipc.ExecOpts, p *prog.Prog) {
-	if proc.fuzzer.outputType == OutputNone {
-		return
-	}
+	// Alper
+	// Fake log to speed it up. The manager expects a log, so we provide a fake one so it's not killed
+	// TODO maybe disable this?
+	now := time.Now()                                         //
+	proc.fuzzer.logMu.Lock()                                  //
+	fmt.Printf("%02v:%02v:%02v executing program 0:\nmmap\n", //
+		now.Hour(), now.Minute(), now.Second()) //
+	proc.fuzzer.logMu.Unlock() //
+	return                     //
 
-	data := p.Serialize()
-	strOpts := ""
-	if opts.Flags&ipc.FlagInjectFault != 0 {
-		strOpts = fmt.Sprintf(" (fault-call:%v fault-nth:%v)", opts.FaultCall, opts.FaultNth)
-	}
-
-	// The following output helps to understand what program crashed kernel.
-	// It must not be intermixed.
-	switch proc.fuzzer.outputType {
-	case OutputStdout:
-		now := time.Now()
-		proc.fuzzer.logMu.Lock()
-		fmt.Printf("%02v:%02v:%02v executing program %v%v:\n%s\n",
-			now.Hour(), now.Minute(), now.Second(),
-			proc.pid, strOpts, data)
-		proc.fuzzer.logMu.Unlock()
-	case OutputDmesg:
-		fd, err := syscall.Open("/dev/kmsg", syscall.O_WRONLY, 0)
-		if err == nil {
-			buf := new(bytes.Buffer)
-			fmt.Fprintf(buf, "syzkaller: executing program %v%v:\n%s\n",
-				proc.pid, strOpts, data)
-			syscall.Write(fd, buf.Bytes())
-			syscall.Close(fd)
-		}
-	case OutputFile:
-		f, err := os.Create(fmt.Sprintf("%v-%v.prog", proc.fuzzer.name, proc.pid))
-		if err == nil {
-			if strOpts != "" {
-				fmt.Fprintf(f, "#%v\n", strOpts)
-			}
-			f.Write(data)
-			f.Close()
-		}
-	default:
-		log.Fatalf("unknown output type: %v", proc.fuzzer.outputType)
-	}
+	//if proc.fuzzer.outputType == OutputNone {
+	//	return
+	//}
+	//
+	//data := p.Serialize()
+	//strOpts := ""
+	//if opts.Flags&ipc.FlagInjectFault != 0 {
+	//	strOpts = fmt.Sprintf(" (fault-call:%v fault-nth:%v)", opts.FaultCall, opts.FaultNth)
+	//}
+	//
+	//// The following output helps to understand what program crashed kernel.
+	//// It must not be intermixed.
+	//switch proc.fuzzer.outputType {
+	//case OutputStdout:
+	//	now := time.Now()
+	//	proc.fuzzer.logMu.Lock()
+	//	fmt.Printf("%02v:%02v:%02v executing program %v%v:\n%s\n",
+	//		now.Hour(), now.Minute(), now.Second(),
+	//		proc.pid, strOpts, data)
+	//	proc.fuzzer.logMu.Unlock()
+	//case OutputDmesg:
+	//	fd, err := syscall.Open("/dev/kmsg", syscall.O_WRONLY, 0)
+	//	if err == nil {
+	//		buf := new(bytes.Buffer)
+	//		fmt.Fprintf(buf, "syzkaller: executing program %v%v:\n%s\n",
+	//			proc.pid, strOpts, data)
+	//		syscall.Write(fd, buf.Bytes())
+	//		syscall.Close(fd)
+	//	}
+	//case OutputFile:
+	//	f, err := os.Create(fmt.Sprintf("%v-%v.prog", proc.fuzzer.name, proc.pid))
+	//	if err == nil {
+	//		if strOpts != "" {
+	//			fmt.Fprintf(f, "#%v\n", strOpts)
+	//		}
+	//		f.Write(data)
+	//		f.Close()
+	//	}
+	//default:
+	//	log.Fatalf("unknown output type: %v", proc.fuzzer.outputType)
+	//}
 }
