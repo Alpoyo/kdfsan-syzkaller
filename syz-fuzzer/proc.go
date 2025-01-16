@@ -301,7 +301,24 @@ func (proc *Proc) enqueueCallTriage(p *prog.Prog, flags ProgTypes, callIndex int
 var tmpCtr = 0 ////
 
 // Alper
+// Define syscall configurations and mappings
+var attemptBuffer = [118]int{}
+var syscallNumbers = []int{90, 92, 85, 91, 268, 93, 260, 72, 62, 94, 265, 28, 149, 151, 9, 240, 71, 68, 70, 69, 150, 257, 82,
+	264, 84, 142, 66, 64, 106, 141, 114, 119, 117, 113, 105, 30, 31, 67, 29, 87, 263, 280}
+var syscallToIdx = map[int]int{90: 0, 92: 1, 85: 2, 91: 3, 268: 4, 93: 5, 260: 6, 72: 7, 62: 8, 94: 9, 265: 10, 28: 11,
+	149: 12, 151: 13, 9: 14, 240: 15, 71: 16, 68: 17, 70: 18, 69: 19, 150: 20, 257: 21, 82: 22, 264: 23, 84: 24,
+	142: 25, 66: 26, 64: 27, 106: 28, 141: 29, 114: 30, 119: 31, 117: 32, 113: 33, 105: 34, 30: 35, 31: 36, 67: 37,
+	29: 38, 87: 39, 263: 40, 280: 41}
+var syscallArgs = []int{2, 3, 2, 2, 3, 3, 5, 3, 2, 3, 5, 3, 2, 1, 6, 4, 3, 2, 5, 4, 2, 4, 2, 4, 1, 2, 4, 3, 1, 3, 2, 3,
+	3, 2, 1, 3, 3, 1, 3, 1, 3, 4}
+var syscallToFlat = []int{0, 2, 5, 7, 9, 12, 15, 20, 23, 25, 28, 33, 36, 38, 39, 45, 49, 52, 54, 59, 63, 65, 69, 71, 75,
+	76, 78, 82, 85, 86, 89, 91, 94, 97, 99, 100, 103, 106, 107, 110, 111, 114}
+var aggrAttempts = [118]int{}
+var aggrHits = [118]int{}
+
+// Alper
 var mycounter = 0
+var attemptCommCounter = 0
 
 func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.ProgInfo {
 	if opts.Flags&ipc.FlagDedupCover == 0 {
@@ -327,10 +344,6 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	// Generate random syscall taint config. This has to be called before the state save or it will not advance the
 	// rng internal state for the next execution.
 	// TODO(Alper): keep this automatically updated
-	var syscallNumbers = []int{90, 92, 85, 91, 268, 93, 260, 72, 62, 94, 265, 28, 149, 151, 9, 240, 71, 68, 70, 69, 150, 257, 82,
-		264, 84, 142, 66, 64, 106, 141, 114, 119, 117, 113, 105, 30, 31, 67, 29, 87, 263, 280}
-	var syscallArgs = []int{2, 3, 2, 2, 3, 3, 5, 3, 2, 3, 5, 3, 2, 1, 6, 4, 3, 2, 5, 4, 2, 4, 2, 4, 1, 2, 4, 3, 1, 3, 2, 3, 3, 2,
-		1, 3, 3, 1, 3, 1, 3, 4}
 	syscallIdx := proc.rnd.Intn(len(syscallArgs))
 	syscallConfigNumber := syscallNumbers[syscallIdx]
 	syscallConfigArg := proc.rnd.Intn(syscallArgs[syscallIdx])
@@ -500,10 +513,23 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 					MyLog:          mylogStr,
 				})
 			} else {
-				proc.fuzzer.sendAttemptToManager(rpctype.NewAttempt{
-					SyscallNumber: info.SyscallNumber,
-					SyscallArg:    info.SyscallArg,
-				})
+				var configFlat = syscallToFlat[syscallToIdx[syscallConfigNumber]] + syscallConfigArg
+				attemptBuffer[configFlat]++
+
+				const attemptCommInterval = 10
+				attemptCommCounter++
+				if attemptCommCounter >= attemptCommInterval {
+					/* Send attempt buffer and clear */
+					attemptCommCounter = 0
+					var r = proc.fuzzer.sendAttemptToManager(rpctype.NewAttempt{
+						Attempts: attemptBuffer,
+					})
+					for i := 0; i < len(attemptBuffer); i++ {
+						attemptBuffer[i] = 0
+						aggrAttempts[i] = r[i]
+						aggrHits[i] = r[i+118]
+					}
+				}
 			}
 		} else {
 			info.SyscallNumber = uint32(1000000000)

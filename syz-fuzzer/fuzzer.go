@@ -427,10 +427,12 @@ func (fuzzer *Fuzzer) sendTaintToManager(inp rpctype.RPCInput) {
 }
 
 // Must be called with the lock
-func (fuzzer *Fuzzer) sendAttemptToManager(inp rpctype.NewAttempt) {
-	if err := fuzzer.manager.Call("Manager.NewTaintAttempt", inp, nil); err != nil {
+func (fuzzer *Fuzzer) sendAttemptToManager(inp rpctype.NewAttempt) [236]int {
+	var r [236]int
+	if err := fuzzer.manager.Call("Manager.NewTaintAttempt", inp, &r); err != nil {
 		log.Fatalf("AAAAAA Manager.NewTaintResult call failed: %v", err)
 	}
+	return r
 }
 
 // This should be called with the rpc mutex locked

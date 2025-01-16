@@ -225,10 +225,14 @@ func RunManager(cfg *mgrconfig.Config, target *prog.Target, sysTarget *targets.T
 			for i := 0; i < len(syscallHits); i++ {
 				numHits += syscallHits[i]
 			}
+			numAttempts := 0
+			for i := 0; i < len(syscallAttempts); i++ {
+				numAttempts += syscallAttempts[i]
+			}
 
-			log.Logf(0, "VMs %v, executed %v, cover %v, crashes %v, repro %v, taintHits %v",
-				numFuzzing, executed, signal, crashes, numReproducing, numHits)
-			// MARK(Alper): log printing
+			// Alper also log taint hit/attempts
+			log.Logf(0, "VMs %v, executed %v, cover %v, crashes %v, repro %v, hits %v, attempts %v",
+				numFuzzing, executed, signal, crashes, numReproducing, numHits, numAttempts)
 		}
 	}()
 
@@ -1087,14 +1091,8 @@ var syscallArgs = []int{2, 3, 2, 2, 3, 3, 5, 3, 2, 3, 5, 3, 2, 1, 6, 4, 3, 2, 5,
 	3, 2, 1, 3, 3, 1, 3, 1, 3, 4}
 var syscallToFlat = []int{0, 2, 5, 7, 9, 12, 15, 20, 23, 25, 28, 33, 36, 38, 39, 45, 49, 52, 54, 59, 63, 65, 69, 71, 75,
 	76, 78, 82, 85, 86, 89, 91, 94, 97, 99, 100, 103, 106, 107, 110, 111, 114}
-var syscallAttempts = []int{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-var syscallHits = []int{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+var syscallAttempts = [118]int{}
+var syscallHits = [118]int{}
 
 func (mgr *Manager) newTaintResult(inp rpctype.RPCInput, sign signal.Signal) bool {
 	mgr.mu.Lock()
@@ -1154,16 +1152,24 @@ func (mgr *Manager) newTaintResult(inp rpctype.RPCInput, sign signal.Signal) boo
 
 	return true
 }
-func (mgr *Manager) newTaintAttempt(inp rpctype.NewAttempt) bool {
+
+var saveAttemptsCounter = 0
+
+func (mgr *Manager) newTaintAttempt(inp rpctype.NewAttempt, r *[236]int) bool {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
 	// Accumulate the results for the distribution
-	var configIdxFlat = syscallToFlat[syscallToIdx[int(inp.SyscallNumber)]] + int(inp.SyscallArg)
-	syscallAttempts[configIdxFlat] += 1
+	//var configIdxFlat = syscallToFlat[syscallToIdx[int(inp.SyscallNumber)]] + int(inp.SyscallArg)
+	//syscallAttempts[configIdxFlat] += 1
+	for i := 0; i < len(syscallAttempts); i++ {
+		syscallAttempts[i] += inp.Attempts[i]
+	}
 
-	var doSave = true
-	if doSave {
+	const saveAttemptsInterval = 16
+	saveAttemptsCounter++
+	if saveAttemptsCounter >= saveAttemptsInterval {
+		saveAttemptsCounter = 0
 		var distributionFilename = "myattempts.txt"
 		var distributionPath = filepath.Join(mgr.cfg.Workdir, distributionFilename)
 		myfile, err := os.OpenFile(distributionPath, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
@@ -1187,7 +1193,11 @@ func (mgr *Manager) newTaintAttempt(inp rpctype.NewAttempt) bool {
 		myfile.Close()
 	}
 
-	// TODO send the new distribution back to vm
+	/* Send accumulated stats back to vm */
+	for i := 0; i < 118; i++ {
+		(*r)[i] = syscallAttempts[i]
+		(*r)[i+118] = syscallHits[i]
+	}
 
 	return true
 }

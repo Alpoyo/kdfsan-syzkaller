@@ -64,10 +64,9 @@ type NewInputArgs struct {
 	RPCInput
 }
 
+// Alper
 type NewAttempt struct {
-	// Alper
-	SyscallNumber uint32
-	SyscallArg    uint32
+	Attempts [118]int
 }
 
 type PollArgs struct {

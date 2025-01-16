@@ -54,7 +54,7 @@ type RPCManagerView interface {
 	machineChecked(result *rpctype.CheckArgs)
 	newInput(inp rpctype.RPCInput, sign signal.Signal) bool
 	newTaintResult(inp rpctype.RPCInput, sign signal.Signal) bool
-	newTaintAttempt(inp rpctype.NewAttempt) bool
+	newTaintAttempt(inp rpctype.NewAttempt, r *[236]int) bool
 	candidateBatch(size int) []rpctype.RPCCandidate
 	rotateCorpus() bool
 	saveSnapshot(vmName string)
@@ -292,8 +292,8 @@ func (serv *RPCServer) NewTaintResult(a *rpctype.NewInputArgs, r *int) error {
 	return nil
 }
 
-func (serv *RPCServer) NewTaintAttempt(a *rpctype.NewAttempt, r *int) error {
-	if !serv.mgr.newTaintAttempt(*a) {
+func (serv *RPCServer) NewTaintAttempt(a *rpctype.NewAttempt, r *[236]int) error {
+	if !serv.mgr.newTaintAttempt(*a, r) {
 		return nil
 	}
 	return nil
