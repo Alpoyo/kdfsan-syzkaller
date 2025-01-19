@@ -4,7 +4,6 @@
 package main
 
 import (
-	"bytes"
 	//"bytes"
 	"fmt"
 	"math"
@@ -13,8 +12,6 @@ import (
 	"runtime/debug"
 	"strconv"
 	"sync/atomic"
-	"syscall"
-
 	//"syscall"
 	"time"
 
@@ -578,12 +575,12 @@ func (proc *Proc) logProgram(opts *ipc.ExecOpts, p *prog.Prog) {
 	// Alper
 	// Fake log to speed it up. The manager expects a log, so we provide a fake one so it's not killed
 	// TODO maybe disable this?
-	now := time.Now()                                         //
-	proc.fuzzer.logMu.Lock()                                  //
+	now := time.Now()        //
+	proc.fuzzer.logMu.Lock() //
 	fmt.Printf("%02v:%02v:%02v executing program 0:\nmmap\n", //
 		now.Hour(), now.Minute(), now.Second()) //
-	proc.fuzzer.logMu.Unlock() //
-	return                     //
+	proc.fuzzer.logMu.Unlock()                  //
+	return                                      //
 
 	//if proc.fuzzer.outputType == OutputNone {
 	//	return
