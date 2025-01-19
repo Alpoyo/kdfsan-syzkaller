@@ -326,6 +326,23 @@ func floatsMax(floats []float64) float64 {
 }
 
 // Alper
+func u64_to_hex(n uint64) string {
+	return fmt.Sprintf("0x%016x", n)
+}
+func u48_to_hex(n uint64) string {
+	return fmt.Sprintf("0x%012x", n&0xffffffffffff)
+}
+func u32_to_hex(n uint32) string {
+	return fmt.Sprintf("0x%08x", n)
+}
+func u16_to_hex(n uint16) string {
+	return fmt.Sprintf("0x%04x", n)
+}
+func u8_to_hex(n uint8) string {
+	return fmt.Sprintf("0x%02x", n)
+}
+
+// Alper
 // Define syscall configurations and mappings
 var attemptBuffer = [118]int{}
 var syscallNumbers = []int{90, 92, 85, 91, 268, 93, 260, 72, 62, 94, 265, 28, 149, 151, 9, 240, 71, 68, 70, 69, 150, 257, 82,
@@ -458,16 +475,9 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 
 	// Alper
 	// Forward the config to kernel
-	if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", fmt.Sprintf("echo %v > /sys/kernel/debug/alper/syscall_config_syscall", syscallConfigNumber)); err != nil {
-		log.Logf(0, "Failed setting syscall nr: %v", err)
-	}
-	if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", fmt.Sprintf("echo %v > /sys/kernel/debug/alper/syscall_config_arg", syscallConfigArg)); err != nil {
-		log.Logf(0, "Failed setting syscall nr: %v", err)
-	}
-	if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", fmt.Sprintf("echo %v > /sys/kernel/debug/alper/syscall_config_layer", 0)); err != nil {
-		log.Logf(0, "Failed setting syscall layer: %v", err)
-	}
-	if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/alper/syscall_config_commit"); err != nil {
+	var configStr = u16_to_hex(uint16(syscallConfigNumber)) + " " + u8_to_hex(uint8(syscallConfigArg))
+	if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c",
+		fmt.Sprintf("echo '%v' > /sys/kernel/debug/alper/syscall_config", configStr)); err != nil {
 		log.Logf(0, "Failed commiting syscall config: %v", err)
 	}
 
