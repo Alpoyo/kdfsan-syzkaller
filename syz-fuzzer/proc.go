@@ -4,13 +4,17 @@
 package main
 
 import (
+	"bytes"
 	//"bytes"
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"runtime/debug"
 	"strconv"
 	"sync/atomic"
+	"syscall"
+
 	//"syscall"
 	"time"
 
@@ -298,7 +302,31 @@ func (proc *Proc) enqueueCallTriage(p *prog.Prog, flags ProgTypes, callIndex int
 	})
 }
 
-var tmpCtr = 0 ////
+// Alper
+// Convenience functions
+func intsSum(ints []int) int {
+	sum := 0
+	for i := 0; i < len(ints); i++ {
+		sum += ints[i]
+	}
+	return sum
+}
+func floatsSum(floats []float64) float64 {
+	var sum float64 = 0
+	for i := 0; i < len(floats); i++ {
+		sum += floats[i]
+	}
+	return sum
+}
+func floatsMax(floats []float64) float64 {
+	var max float64 = float64(math.Inf(-1))
+	for i := 0; i < len(floats); i++ {
+		if floats[i] > max {
+			max = floats[i]
+		}
+	}
+	return max
+}
 
 // Alper
 // Define syscall configurations and mappings
@@ -311,13 +339,29 @@ var syscallToIdx = map[int]int{90: 0, 92: 1, 85: 2, 91: 3, 268: 4, 93: 5, 260: 6
 	29: 38, 87: 39, 263: 40, 280: 41}
 var syscallArgs = []int{2, 3, 2, 2, 3, 3, 5, 3, 2, 3, 5, 3, 2, 1, 6, 4, 3, 2, 5, 4, 2, 4, 2, 4, 1, 2, 4, 3, 1, 3, 2, 3,
 	3, 2, 1, 3, 3, 1, 3, 1, 3, 4}
-var syscallToFlat = []int{0, 2, 5, 7, 9, 12, 15, 20, 23, 25, 28, 33, 36, 38, 39, 45, 49, 52, 54, 59, 63, 65, 69, 71, 75,
-	76, 78, 82, 85, 86, 89, 91, 94, 97, 99, 100, 103, 106, 107, 110, 111, 114}
+var syscallToFlat = [][]int{{0, 1}, {2, 3, 4}, {5, 6}, {7, 8}, {9, 10, 11}, {12, 13, 14}, {15, 16, 17, 18, 19},
+	{20, 21, 22}, {23, 24}, {25, 26, 27}, {28, 29, 30, 31, 32}, {33, 34, 35}, {36, 37}, {38}, {39, 40, 41, 42, 43, 44},
+	{45, 46, 47, 48}, {49, 50, 51}, {52, 53}, {54, 55, 56, 57, 58}, {59, 60, 61, 62}, {63, 64}, {65, 66, 67, 68},
+	{69, 70}, {71, 72, 73, 74}, {75}, {76, 77}, {78, 79, 80, 81}, {82, 83, 84}, {85}, {86, 87, 88}, {89, 90},
+	{91, 92, 93}, {94, 95, 96}, {97, 98}, {99}, {100, 101, 102}, {103, 104, 105}, {106}, {107, 108, 109}, {110},
+	{111, 112, 113}, {114, 115, 116, 117}}
+var flatToIdx = []int{0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 6, 6, 7, 7, 7, 8, 8, 9, 9, 9, 10, 10, 10, 10,
+	10, 11, 11, 11, 12, 12, 13, 14, 14, 14, 14, 14, 14, 15, 15, 15, 15, 16, 16, 16, 17, 17, 18, 18, 18, 18, 18, 19, 19,
+	19, 19, 20, 20, 21, 21, 21, 21, 22, 22, 23, 23, 23, 23, 24, 25, 25, 26, 26, 26, 26, 27, 27, 27, 28, 29, 29, 29, 30,
+	30, 31, 31, 31, 32, 32, 32, 33, 33, 34, 35, 35, 35, 36, 36, 36, 37, 38, 38, 38, 39, 40, 40, 40, 41, 41, 41, 41}
+var flatToSys = []int{90, 90, 92, 92, 92, 85, 85, 91, 91, 268, 268, 268, 93, 93, 93, 260, 260, 260, 260, 260, 72, 72, 72,
+	62, 62, 94, 94, 94, 265, 265, 265, 265, 265, 28, 28, 28, 149, 149, 151, 9, 9, 9, 9, 9, 9, 240, 240, 240, 240, 71,
+	71, 71, 68, 68, 70, 70, 70, 70, 70, 69, 69, 69, 69, 150, 150, 257, 257, 257, 257, 82, 82, 264, 264, 264, 264, 84,
+	142, 142, 66, 66, 66, 66, 64, 64, 64, 106, 141, 141, 141, 114, 114, 119, 119, 119, 117, 117, 117, 113, 113, 105, 30,
+	30, 30, 31, 31, 31, 67, 29, 29, 29, 87, 263, 263, 263, 280, 280, 280, 280}
+var flatToArg = []int{0, 1, 0, 1, 2, 0, 1, 0, 1, 0, 1, 2, 0, 1, 2, 0, 1, 2, 3, 4, 0, 1, 2, 0, 1, 0, 1, 2, 0, 1, 2, 3, 4,
+	0, 1, 2, 0, 1, 0, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 0, 1, 2, 0, 1, 0, 1, 2, 3, 4, 0, 1, 2, 3, 0, 1, 0, 1, 2, 3, 0, 1, 0,
+	1, 2, 3, 0, 0, 1, 0, 1, 2, 3, 0, 1, 2, 0, 0, 1, 2, 0, 1, 0, 1, 2, 0, 1, 2, 0, 1, 0, 0, 1, 2, 0, 1, 2, 0, 0, 1, 2, 0,
+	0, 1, 2, 0, 1, 2, 3}
 var aggrAttempts = [118]int{}
 var aggrHits = [118]int{}
 
 // Alper
-var mycounter = 0
 var attemptCommCounter = 0
 
 func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.ProgInfo {
@@ -341,14 +385,59 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	defer proc.fuzzer.gate.Leave(ticket)
 
 	// Alper
-	// Generate random syscall taint config. This has to be called before the state save or it will not advance the
-	// rng internal state for the next execution.
-	// TODO importance sampling
-	syscallIdx := proc.rnd.Intn(len(syscallArgs))
-	syscallConfigNumber := syscallNumbers[syscallIdx]
-	syscallConfigArg := proc.rnd.Intn(syscallArgs[syscallIdx])
+	// check whether the tainted is present in the input program
+	// TODO . . .
+	var inputProgStr = "input program: "
+	for _, call := range p.Calls {
+		inputProgStr += call.Meta.CallName
+		inputProgStr += ", "
+	}
 
-	// Just creat
+	// Alper
+	// Generate random syscall taint config. Use inverse hit rates as the weights for the random sampling
+	numHits := intsSum(aggrHits[:])
+	const hitlessFactor float64 = 2.0
+	var syscallIdx int
+	var syscallConfigNumber int
+	var syscallConfigArg int
+	if numHits == 0 {
+		syscallIdx = proc.rnd.Intn(len(syscallArgs))
+		syscallConfigNumber = syscallNumbers[syscallIdx]
+		syscallConfigArg = proc.rnd.Intn(syscallArgs[syscallIdx])
+	} else {
+		// Calculate weights
+		inverseHitRates := [118]float64{}
+		for i := 0; i < 118; i++ {
+			if aggrHits[i] == 0 {
+				inverseHitRates[i] = -1
+			} else {
+				inverseHitRates[i] = float64(aggrAttempts[i]) / float64(aggrHits[i])
+			}
+		}
+		noHitWeight := floatsMax(inverseHitRates[:]) * hitlessFactor
+		for i := 0; i < 118; i++ {
+			if inverseHitRates[i] == -1 {
+				inverseHitRates[i] = noHitWeight
+			}
+		}
+		// Now sample config by weight
+		rndCur := proc.rnd.Float64() * floatsSum(inverseHitRates[:])
+		var cumSum float64 = 0
+		var syscallConfigFlat int = 0
+		for i := 0; i < 118; i++ {
+			cumSum += inverseHitRates[i]
+			if cumSum > rndCur {
+				syscallConfigFlat = i
+				break
+			}
+		}
+
+		syscallConfigNumber = flatToSys[syscallConfigFlat]
+		syscallConfigArg = flatToArg[syscallConfigFlat]
+		syscallIdx = flatToIdx[syscallConfigFlat]
+	}
+
+	// Just a single configuration
 	if doSyscallOnly != -1 {
 		syscallConfigNumber = doSyscallOnly
 		syscallIdx = 0
@@ -361,17 +450,7 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 		syscallConfigArg = proc.rnd.Intn(syscallArgs[syscallIdx])
 	}
 
-	// TODO is this optional?
 	proc.logProgram(opts, p)
-
-	// Alper
-	// check whether the tainted is present in the input program
-	// TODO . . .
-	var inputProgStr = "input program: "
-	for _, call := range p.Calls {
-		inputProgStr += call.Meta.CallName
-		inputProgStr += ", "
-	}
 
 	// MARK(Alper): this is where kdfsan is configured
 	//if enableKdfsan {
@@ -472,7 +551,7 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 				MyLog:          mylogStr,
 			})
 		} else {
-			var configFlat = syscallToFlat[syscallToIdx[syscallConfigNumber]] + syscallConfigArg
+			var configFlat = syscallToFlat[syscallToIdx[syscallConfigNumber]][syscallConfigArg]
 			attemptBuffer[configFlat]++
 
 			const attemptCommInterval = 10
