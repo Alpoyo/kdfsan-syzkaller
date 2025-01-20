@@ -16,14 +16,6 @@ type RPCInput struct {
 	Prog   []byte
 	Signal signal.Serial
 	Cover  []uint32
-
-	// Alper
-	SyscallNumber  uint32
-	SyscallArg     uint32
-	SyscallResults []byte
-	InputProgram   string
-	InputProgram2  []byte
-	MyLog          string
 }
 
 type RPCCandidate struct {
@@ -67,6 +59,14 @@ type NewInputArgs struct {
 // Alper
 type NewAttempt struct {
 	Attempts [118]int
+}
+type NewTaintResult struct {
+	SyscallConfigs [8]int
+	HitMask        uint8
+	SyscallResults []byte
+	InputProgram   string
+	InputProgram2  []byte
+	MyLog          string
 }
 
 type PollArgs struct {

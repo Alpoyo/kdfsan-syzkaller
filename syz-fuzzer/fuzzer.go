@@ -415,12 +415,8 @@ func (fuzzer *Fuzzer) sendInputToManager(inp rpctype.RPCInput) {
 
 // Alper
 // Must be called with the lock
-func (fuzzer *Fuzzer) sendTaintToManager(inp rpctype.RPCInput) {
-	a := &rpctype.NewInputArgs{
-		Name:     fuzzer.name,
-		RPCInput: inp,
-	}
-	if err := fuzzer.manager.Call("Manager.NewTaintResult", a, nil); err != nil {
+func (fuzzer *Fuzzer) sendTaintToManager(inp rpctype.NewTaintResult) {
+	if err := fuzzer.manager.Call("Manager.NewTaintResult", inp, nil); err != nil {
 		log.Fatalf("AAAAAA Manager.NewTaintResult call failed: %v", err)
 	}
 }

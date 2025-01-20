@@ -107,11 +107,6 @@ func (proc *Proc) loop() {
 }
 
 func (proc *Proc) triageInput(item *WorkTriage) {
-	// Alper
-	syscallNumber := uint32(1000000000)
-	syscallArg := uint32(1000000000)
-	syscallResults := []byte{97, 10}
-
 	log.Logf(1, "#%v: triaging type=%x", proc.pid, item.flags)
 
 	prio := signalPrio(item.p, &item.info, item.call)
@@ -152,12 +147,6 @@ func (proc *Proc) triageInput(item *WorkTriage) {
 			return
 		}
 		inputCover.Merge(thisCover)
-
-		// Alper
-		// TODO(Alper) merge taint results
-		syscallNumber = info.SyscallNumber
-		syscallArg = info.SyscallArg
-		syscallResults = info.SyscallResults
 	}
 	if item.flags&ProgMinimized == 0 {
 		item.p, item.call = prog.Minimize(item.p, item.call, false,
@@ -189,11 +178,6 @@ func (proc *Proc) triageInput(item *WorkTriage) {
 		Prog:   data,
 		Signal: inputSignal.Serialize(),
 		Cover:  inputCover.Serialize(),
-
-		// Alper
-		SyscallNumber:  syscallNumber,
-		SyscallArg:     syscallArg,
-		SyscallResults: syscallResults,
 	})
 
 	proc.fuzzer.addInputToCorpus(item.p, inputSignal, sig)
@@ -308,6 +292,22 @@ func intsSum(ints []int) int {
 	}
 	return sum
 }
+func intsShuffle(ints []int, rnd *rand.Rand) {
+	// Knuth
+	for i := 0; i < len(ints); i++ {
+		j := rnd.Intn(len(ints)-i) + i
+		swap := ints[j]
+		ints[j] = ints[i]
+		ints[i] = swap
+	}
+}
+func intsSeq(n int) []int {
+	ints := make([]int, n)
+	for i := 0; i < n; i++ {
+		ints[i] = i
+	}
+	return ints
+}
 func floatsSum(floats []float64) float64 {
 	var sum float64 = 0
 	for i := 0; i < len(floats); i++ {
@@ -372,11 +372,42 @@ var flatToArg = []int{0, 1, 0, 1, 2, 0, 1, 0, 1, 0, 1, 2, 0, 1, 2, 0, 1, 2, 3, 4
 	0, 1, 2, 0, 1, 0, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 0, 1, 2, 0, 1, 0, 1, 2, 3, 4, 0, 1, 2, 3, 0, 1, 0, 1, 2, 3, 0, 1, 0,
 	1, 2, 3, 0, 0, 1, 0, 1, 2, 3, 0, 1, 2, 0, 0, 1, 2, 0, 1, 0, 1, 2, 0, 1, 2, 0, 1, 0, 0, 1, 2, 0, 1, 2, 0, 0, 1, 2, 0,
 	0, 1, 2, 0, 1, 2, 3}
+var noneConfig = 65535
 var aggrAttempts = [118]int{}
 var aggrHits = [118]int{}
 
 // Alper
 var attemptCommCounter = 0
+var initIsDone = false
+
+// Return the index of the sampled element
+func pmfSample(pmf []float64, rnd *rand.Rand) int {
+	rndCur := rnd.Float64() * floatsSum(pmf)
+	var cmfCur float64 = 0
+	var elementIdx int = 0
+	for i := 0; i < 118; i++ {
+		if pmf[i] == 0 {
+			continue
+		}
+		cmfCur += pmf[i]
+		if cmfCur > rndCur {
+			elementIdx = i
+			break
+		}
+	}
+
+	// Just in case: handle float jank, if something with 0 probability is picked, pick the first one with non-zero
+	// probability.
+	if pmf[elementIdx] == 0 {
+		for i := 0; i < len(pmf); i++ {
+			if pmf[i] != 0 {
+				return i
+			}
+		}
+	}
+
+	return elementIdx
+}
 
 func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.ProgInfo {
 	if opts.Flags&ipc.FlagDedupCover == 0 {
@@ -409,16 +440,19 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 
 	// Alper
 	// Generate random syscall taint config. Use inverse hit rates as the weights for the random sampling
+	// TODO also apply the present mask here
 	numHits := intsSum(aggrHits[:])
 	const hitlessFactor float64 = 2.0
-	var syscallIdx int
-	var syscallConfigNumber int
-	var syscallConfigArg int
-	if numHits == 0 {
-		syscallIdx = proc.rnd.Intn(len(syscallArgs))
-		syscallConfigNumber = syscallNumbers[syscallIdx]
-		syscallConfigArg = proc.rnd.Intn(syscallArgs[syscallIdx])
+	var syscallConfigs [8]int
+	if numHits == 0 || true { // TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO
+		// No hit-rate statistics -> use uniform distribution
+		seq := intsSeq(118)
+		intsShuffle(seq, proc.rnd)
+		for i := 0; i < 8; i++ {
+			syscallConfigs[i] = seq[i]
+		}
 	} else {
+		// TODO profile this?
 		// Calculate weights
 		inverseHitRates := [118]float64{}
 		for i := 0; i < 118; i++ {
@@ -434,48 +468,48 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 				inverseHitRates[i] = noHitWeight
 			}
 		}
-		// Now sample config by weight
-		rndCur := proc.rnd.Float64() * floatsSum(inverseHitRates[:])
-		var cumSum float64 = 0
-		var syscallConfigFlat int = 0
-		for i := 0; i < 118; i++ {
-			cumSum += inverseHitRates[i]
-			if cumSum > rndCur {
-				syscallConfigFlat = i
-				break
-			}
-		}
 
-		syscallConfigNumber = flatToSys[syscallConfigFlat]
-		syscallConfigArg = flatToArg[syscallConfigFlat]
-		syscallIdx = flatToIdx[syscallConfigFlat]
+		// Now sample up to 8 configs by weight
+		// TODO uniform sampling if remaining pmf is all zeroes after present mask
+		for i := 0; i < 8; i++ {
+			idxCur := pmfSample(inverseHitRates[:], proc.rnd)
+			syscallConfigs[i] = idxCur
+			inverseHitRates[idxCur] = 0
+		}
 	}
 
 	// Just a single configuration
-	if doSyscallOnly != -1 {
-		syscallConfigNumber = doSyscallOnly
-		syscallIdx = 0
-		for i := 0; i < len(syscallNumbers); i++ {
-			if syscallNumbers[i] == doSyscallOnly {
-				syscallIdx = i
-				break
-			}
-		}
-		syscallConfigArg = proc.rnd.Intn(syscallArgs[syscallIdx])
-	}
+	// TODO fix for new format, select up to 8 syscalls
+	//if doSyscallOnly != -1 {
+	//	syscallConfigNumber = doSyscallOnly
+	//	syscallIdx = 0
+	//	for i := 0; i < len(syscallNumbers); i++ {
+	//		if syscallNumbers[i] == doSyscallOnly {
+	//			syscallIdx = i
+	//			break
+	//		}
+	//	}
+	//	syscallConfigArg = proc.rnd.Intn(syscallArgs[syscallIdx])
+	//}
 
 	proc.logProgram(opts, p)
 
-	// MARK(Alper): this is where kdfsan is configured
-	//if enableKdfsan {
-	// TODO(Alper): move to vm init or something
-	if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/kdfsan/enable"); err != nil {
-		log.Logf(0, "Failed to enable Kdfsan: %v", err)
+	if !initIsDone {
+		initIsDone = true
+		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/kdfsan/enable"); err != nil {
+			log.Logf(0, "Failed to enable Kdfsan: %v", err)
+		}
 	}
 
 	// Alper
 	// Forward the config to kernel
-	var configStr = u16_to_hex(uint16(syscallConfigNumber)) + " " + u8_to_hex(uint8(syscallConfigArg))
+	var configStr = ""
+	for i := 0; i < 8; i++ {
+		sysCur := flatToSys[syscallConfigs[i]]
+		argCur := flatToArg[syscallConfigs[i]]
+		configStr += u16_to_hex(uint16(sysCur)) + " " + u8_to_hex(uint8(argCur)) + " "
+	}
+	//log.Logf(0, "\033[38;2;0;150;255mconfigStr: %s\033[0m\n", configStr) // TODO DELETE ME
 	if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c",
 		fmt.Sprintf("echo '%v' > /sys/kernel/debug/alper/syscall_config", configStr)); err != nil {
 		log.Logf(0, "Failed commiting syscall config: %v", err)
@@ -512,31 +546,15 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 		}
 		// Read the kdfsan taint results
 		// Disable tainted syscalls
-		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "echo 0xffffffffffffffff > /sys/kernel/debug/alper/syscall_config_syscall"); err != nil {
-			log.Logf(0, "Failed setting syscall nr: %v", err)
-		}
-		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "echo 0xffffffffffffffff > /sys/kernel/debug/alper/syscall_config_arg"); err != nil {
-			log.Logf(0, "Failed setting syscall arg: %v", err)
-		}
-		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "echo 0xffffffffffffffff > /sys/kernel/debug/alper/syscall_config_layer"); err != nil {
-			log.Logf(0, "Failed setting syscall layer: %v", err)
-		}
-		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/alper/syscall_config_commit"); err != nil {
-			log.Logf(0, "Failed commiting syscall config: %v", err)
-		}
 		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/alper/flush"); err != nil {
 			log.Logf(0, "Failed flushing shadow mem: %v", err)
 		}
 
 		// Read and clear the results file
+		// TODO clear automatically after reading is done
 		data, err2 := os.ReadFile("/sys/kernel/debug/alper/results")
 		if err2 != nil {
 			log.Logf(0, "Failed to read /sys/kernel/debug/alper/results: %v", err2)
-		} else {
-			//log.Logf(0, "data: %v", string(data)) // print the results file
-			info.SyscallNumber = uint32(syscallConfigNumber)
-			info.SyscallArg = uint32(syscallConfigArg)
-			info.SyscallResults = data
 		}
 		_, err3 := os.ReadFile("/sys/kernel/debug/alper/clear")
 		if err3 != nil {
@@ -547,19 +565,25 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 		if logResults {
 			log.Logf(0, "\033[38;2;255;255;0m%v\033[0m\n", string(data))
 		}
-		myresult_count, errParse := strconv.ParseInt(string(data[21:29]), 16, 32)
-		if myresult_count > 0 && errParse == nil {
-			proc.fuzzer.sendTaintToManager(rpctype.RPCInput{
-				SyscallNumber:  info.SyscallNumber,
-				SyscallArg:     info.SyscallArg,
-				SyscallResults: info.SyscallResults,
+		myresult_count, errParse := strconv.ParseUint(string(data[151+2:151+2+8]), 16, 32)
+		hitmask, errParse2 := strconv.ParseUint(string(data[127+2:127+2+2]), 16, 8)
+		if myresult_count > 0 && errParse == nil && errParse2 == nil {
+			proc.fuzzer.sendTaintToManager(rpctype.NewTaintResult{
+				SyscallConfigs: syscallConfigs,
+				HitMask:        uint8(hitmask),
+				SyscallResults: data,
 				InputProgram:   inputProgStr,
 				InputProgram2:  p.Serialize(),
 				MyLog:          mylogStr,
 			})
 		} else {
-			var configFlat = syscallToFlat[syscallToIdx[syscallConfigNumber]][syscallConfigArg]
-			attemptBuffer[configFlat]++
+			// None of the taint values hit anything, count up to 8 attempts
+			for i := 0; i < len(syscallConfigs); i++ {
+				if syscallConfigs[i] < 0 {
+					continue
+				}
+				attemptBuffer[syscallConfigs[i]]++
+			}
 
 			const attemptCommInterval = 10
 			attemptCommCounter++

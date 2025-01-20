@@ -1122,14 +1122,20 @@ var syscallHits = [118]int{}
 // Random state
 var rnd *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
 
-func (mgr *Manager) newTaintResult(inp rpctype.RPCInput, sign signal.Signal) bool {
+func (mgr *Manager) newTaintResult(inp rpctype.NewTaintResult) bool {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
 	// Accumulate the results for the distribution
-	var configIdxFlat = syscallToFlat[syscallToIdx[int(inp.SyscallNumber)]][inp.SyscallArg]
-	syscallAttempts[configIdxFlat] += 1
-	syscallHits[configIdxFlat] += 1
+	for i := 0; i < len(inp.SyscallConfigs); i++ {
+		if inp.SyscallConfigs[i] < 0 {
+			continue
+		}
+		syscallAttempts[inp.SyscallConfigs[i]] += 1
+		if (inp.HitMask & (1 << i)) != 0 {
+			syscallHits[inp.SyscallConfigs[i]] += 1
+		}
+	}
 
 	// Define my config
 	const doMylog = true
@@ -1146,7 +1152,7 @@ func (mgr *Manager) newTaintResult(inp rpctype.RPCInput, sign signal.Signal) boo
 	}
 	// The fuzzer doesn't have to be aware of any details from the results as it isn't guided by it
 	// so just handle it as a series of characters instead of parsing it as go data.
-	_, err0 := myfile.WriteString(fmt.Sprintf("start %d %d\n", inp.SyscallNumber, inp.SyscallArg))
+	_, err0 := myfile.WriteString(fmt.Sprintf("start %d %d\n", 0, 0))
 	_, err3 := myfile.WriteString(fmt.Sprintf("%s\n", inp.InputProgram))
 	_, err4 := myfile.WriteString(fmt.Sprintf("input program index %d\n", inputProgramId))
 	if doMylog {

@@ -53,7 +53,7 @@ type RPCManagerView interface {
 	fuzzerConnect() ([]rpctype.RPCInput, BugFrames)
 	machineChecked(result *rpctype.CheckArgs)
 	newInput(inp rpctype.RPCInput, sign signal.Signal) bool
-	newTaintResult(inp rpctype.RPCInput, sign signal.Signal) bool
+	newTaintResult(inp rpctype.NewTaintResult) bool
 	newTaintAttempt(inp rpctype.NewAttempt, r *[236]int) bool
 	candidateBatch(size int) []rpctype.RPCCandidate
 	rotateCorpus() bool
@@ -284,9 +284,8 @@ func (serv *RPCServer) NewInput(a *rpctype.NewInputArgs, r *int) error {
 	return nil
 }
 
-func (serv *RPCServer) NewTaintResult(a *rpctype.NewInputArgs, r *int) error {
-	inputSignal := a.Signal.Deserialize()
-	if !serv.mgr.newTaintResult(a.RPCInput, inputSignal) {
+func (serv *RPCServer) NewTaintResult(a *rpctype.NewTaintResult, r *int) error {
+	if !serv.mgr.newTaintResult(*a) {
 		return nil
 	}
 	return nil
