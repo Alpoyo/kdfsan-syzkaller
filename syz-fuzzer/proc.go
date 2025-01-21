@@ -480,17 +480,14 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 
 	// Just a single configuration
 	// TODO fix for new format, select up to 8 syscalls
-	//if doSyscallOnly != -1 {
-	//	syscallConfigNumber = doSyscallOnly
-	//	syscallIdx = 0
-	//	for i := 0; i < len(syscallNumbers); i++ {
-	//		if syscallNumbers[i] == doSyscallOnly {
-	//			syscallIdx = i
-	//			break
-	//		}
-	//	}
-	//	syscallConfigArg = proc.rnd.Intn(syscallArgs[syscallIdx])
-	//}
+	if doSyscallOnly != -1 {
+		sysIdx := syscallToIdx[doSyscallOnly]
+		sysArg := proc.rnd.Intn(syscallArgs[sysIdx])
+		syscallConfigs[0] = syscallToFlat[sysIdx][sysArg]
+		for i := 1; i < len(syscallConfigs); i++ {
+			syscallConfigs[i] = -1
+		}
+	}
 
 	proc.logProgram(opts, p)
 
@@ -505,11 +502,15 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	// Forward the config to kernel
 	var configStr = ""
 	for i := 0; i < 8; i++ {
-		sysCur := flatToSys[syscallConfigs[i]]
-		argCur := flatToArg[syscallConfigs[i]]
+		var sysCur uint16 = math.MaxUint16
+		var argCur uint8 = math.MaxUint8
+		if syscallConfigs[i] >= 0 {
+			sysCur = uint16(flatToSys[syscallConfigs[i]])
+			argCur = uint8(flatToArg[syscallConfigs[i]])
+		}
 		configStr += u16_to_hex(uint16(sysCur)) + " " + u8_to_hex(uint8(argCur)) + " "
 	}
-	//log.Logf(0, "\033[38;2;0;150;255mconfigStr: %s\033[0m\n", configStr) // TODO DELETE ME
+	log.Logf(0, "\033[38;2;0;150;255mconfigStr: %s\033[0m\n", configStr) // TODO DELETE ME
 	if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c",
 		fmt.Sprintf("echo '%v' > /sys/kernel/debug/alper/syscall_config", configStr)); err != nil {
 		log.Logf(0, "Failed commiting syscall config: %v", err)
