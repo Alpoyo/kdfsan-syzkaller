@@ -444,7 +444,7 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	numHits := intsSum(aggrHits[:])
 	const hitlessFactor float64 = 2.0
 	var syscallConfigs [8]int
-	if numHits == 0 || true { // TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO
+	if numHits == 0 {
 		// No hit-rate statistics -> use uniform distribution
 		seq := intsSeq(118)
 		intsShuffle(seq, proc.rnd)
@@ -452,7 +452,6 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 			syscallConfigs[i] = seq[i]
 		}
 	} else {
-		// TODO profile this?
 		// Calculate weights
 		inverseHitRates := [118]float64{}
 		for i := 0; i < 118; i++ {
@@ -479,7 +478,6 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	}
 
 	// Just a single configuration
-	// TODO fix for new format, select up to 8 syscalls
 	if doSyscallOnly != -1 {
 		sysIdx := syscallToIdx[doSyscallOnly]
 		sysArg := proc.rnd.Intn(syscallArgs[sysIdx])
@@ -510,7 +508,6 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 		}
 		configStr += u16_to_hex(uint16(sysCur)) + " " + u8_to_hex(uint8(argCur)) + " "
 	}
-	log.Logf(0, "\033[38;2;0;150;255mconfigStr: %s\033[0m\n", configStr) // TODO DELETE ME
 	if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c",
 		fmt.Sprintf("echo '%v' > /sys/kernel/debug/alper/syscall_config", configStr)); err != nil {
 		log.Logf(0, "Failed commiting syscall config: %v", err)
@@ -545,21 +542,11 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 				log.Logf(0, "Failed to read /sys/kernel/debug/alper/mylog_clear: %v", err)
 			}
 		}
-		// Read the kdfsan taint results
-		// Disable tainted syscalls
-		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/alper/flush"); err != nil {
-			log.Logf(0, "Failed flushing shadow mem: %v", err)
-		}
 
 		// Read and clear the results file
-		// TODO clear automatically after reading is done
 		data, err2 := os.ReadFile("/sys/kernel/debug/alper/results")
 		if err2 != nil {
 			log.Logf(0, "Failed to read /sys/kernel/debug/alper/results: %v", err2)
-		}
-		_, err3 := os.ReadFile("/sys/kernel/debug/alper/clear")
-		if err3 != nil {
-			log.Logf(0, "Failed to read /sys/kernel/debug/alper/clear: %v", err3)
 		}
 
 		// Send taint log to manager before snapshot restore, if there was any taint
@@ -610,12 +597,12 @@ func (proc *Proc) logProgram(opts *ipc.ExecOpts, p *prog.Prog) {
 	// Alper
 	// Fake log to speed it up. The manager expects a log, so we provide a fake one so it's not killed
 	// TODO maybe disable this?
-	now := time.Now()        //
-	proc.fuzzer.logMu.Lock() //
+	now := time.Now()                                         //
+	proc.fuzzer.logMu.Lock()                                  //
 	fmt.Printf("%02v:%02v:%02v executing program 0:\nmmap\n", //
 		now.Hour(), now.Minute(), now.Second()) //
-	proc.fuzzer.logMu.Unlock()                  //
-	return                                      //
+	proc.fuzzer.logMu.Unlock() //
+	return                     //
 
 	//if proc.fuzzer.outputType == OutputNone {
 	//	return
