@@ -344,6 +344,12 @@ func u8_to_hex(n uint8) string {
 
 // Alper
 // Define syscall configurations and mappings
+var syscall_names = []string{
+	"chmod", "chown", "creat", "fchmod", "fchmodat", "fchown", "fchownat", "fcntl",
+	"kill", "lchown", "linkat", "madvise", "mlock", "mlockall", "mmap", "mq_open",
+	"msgctl", "msgget", "msgrcv", "msgsnd", "munlock", "openat", "rename", "renameat",
+	"rmdir", "sched_setparam", "semctl", "semget", "setgid", "setpriority", "setregid", "setresgid",
+	"setresuid", "setreuid", "setuid", "shmat", "shmctl", "shmdt", "shmget", "unlink", "unlinkat", "utimensat"}
 var attemptBuffer = [118]int{}
 var syscallNumbers = []int{90, 92, 85, 91, 268, 93, 260, 72, 62, 94, 265, 28, 149, 151, 9, 240, 71, 68, 70, 69, 150, 257, 82,
 	264, 84, 142, 66, 64, 106, 141, 114, 119, 117, 113, 105, 30, 31, 67, 29, 87, 263, 280}
@@ -416,10 +422,11 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 
 	// Alper
 	// Define constants
-	const doMylog = false    // Default: false
-	const logResults = false // Default: false
-	const doSyscallOnly = -1 // Default: -1
-	const doVerbose = false  // Default: false
+	const doMylog = false       // Default: false
+	const doUniformOnly = false // Default: false
+	const logResults = false    // Default: false
+	const doSyscallOnly = -1    // Default: -1
+	const doVerbose = false     // Default: false
 
 	// Ensures rpc calls unrelated to snapshotting are not made during testing
 	proc.fuzzer.rpcMu.Lock()
@@ -440,13 +447,16 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 
 	// Alper
 	// Generate random syscall taint config. Use inverse hit rates as the weights for the random sampling
-	// TODO also apply the present mask here
 	numHits := intsSum(aggrHits[:])
 	const hitlessFactor float64 = 2.0
 	var syscallConfigs [8]int
-	if numHits == 0 {
+	for i := 0; i < 8; i++ {
+		syscallConfigs[i] = -1
+	}
+	if numHits == 0 || doUniformOnly {
 		// No hit-rate statistics -> use uniform distribution
 		seq := intsSeq(118)
+		// TODO present mask
 		intsShuffle(seq, proc.rnd)
 		for i := 0; i < 8; i++ {
 			syscallConfigs[i] = seq[i]
@@ -469,8 +479,8 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 		}
 
 		// Now sample up to 8 configs by weight
-		// TODO uniform sampling if remaining pmf is all zeroes after present mask
 		for i := 0; i < 8; i++ {
+			// TODO check if there is anything left to sample
 			idxCur := pmfSample(inverseHitRates[:], proc.rnd)
 			syscallConfigs[i] = idxCur
 			inverseHitRates[idxCur] = 0
@@ -597,12 +607,12 @@ func (proc *Proc) logProgram(opts *ipc.ExecOpts, p *prog.Prog) {
 	// Alper
 	// Fake log to speed it up. The manager expects a log, so we provide a fake one so it's not killed
 	// TODO maybe disable this?
-	now := time.Now()                                         //
-	proc.fuzzer.logMu.Lock()                                  //
+	now := time.Now()        //
+	proc.fuzzer.logMu.Lock() //
 	fmt.Printf("%02v:%02v:%02v executing program 0:\nmmap\n", //
 		now.Hour(), now.Minute(), now.Second()) //
-	proc.fuzzer.logMu.Unlock() //
-	return                     //
+	proc.fuzzer.logMu.Unlock()                  //
+	return                                      //
 
 	//if proc.fuzzer.outputType == OutputNone {
 	//	return
