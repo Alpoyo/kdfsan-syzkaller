@@ -293,6 +293,9 @@ func intsSum(ints []int) int {
 	return sum
 }
 func intsShuffle(ints []int, rnd *rand.Rand) {
+	if ints == nil {
+		return
+	}
 	// Knuth
 	for i := 0; i < len(ints); i++ {
 		j := rnd.Intn(len(ints)-i) + i
@@ -344,7 +347,7 @@ func u8_to_hex(n uint8) string {
 
 // Alper
 // Define syscall configurations and mappings
-var syscall_names = []string{
+var syscallNames = []string{
 	"chmod", "chown", "creat", "fchmod", "fchmodat", "fchown", "fchownat", "fcntl",
 	"kill", "lchown", "linkat", "madvise", "mlock", "mlockall", "mmap", "mq_open",
 	"msgctl", "msgget", "msgrcv", "msgsnd", "munlock", "openat", "rename", "renameat",
@@ -416,6 +419,7 @@ func pmfSample(pmf []float64, rnd *rand.Rand) int {
 }
 
 func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.ProgInfo {
+	// TODO(Alper) refactor
 	if opts.Flags&ipc.FlagDedupCover == 0 {
 		log.Fatalf("dedup cover is not enabled")
 	}
@@ -438,11 +442,29 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 
 	// Alper
 	// check whether the tainted is present in the input program
-	// TODO . . .
 	var inputProgStr = "input program: "
+	var progSyscalls []string
 	for _, call := range p.Calls {
-		inputProgStr += call.Meta.CallName
+		sysNameCur := call.Meta.CallName
+		progSyscalls = append(progSyscalls, sysNameCur)
+
+		// append to program string
+		inputProgStr += sysNameCur
 		inputProgStr += ", "
+	}
+	var presentMask = [118]int{}
+	presentCount := 0
+	for i := 0; i < len(syscallNames); i++ {
+		for j := 0; j < len(progSyscalls); j++ {
+			if progSyscalls[j] == syscallNames[i] {
+				for k := 0; k < syscallArgs[i]; k++ {
+					flatCur := syscallToFlat[i][k]
+					presentMask[flatCur] = 1
+					presentCount++
+				}
+				break
+			}
+		}
 	}
 
 	// Alper
@@ -455,10 +477,15 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	}
 	if numHits == 0 || doUniformOnly {
 		// No hit-rate statistics -> use uniform distribution
-		seq := intsSeq(118)
-		// TODO present mask
+		var seq []int
+		for i := 0; i < len(presentMask); i++ {
+			if presentMask[i] == 1 {
+				seq = append(seq, i)
+			}
+		}
+
 		intsShuffle(seq, proc.rnd)
-		for i := 0; i < 8; i++ {
+		for i := 0; i < 8 && i < len(seq); i++ {
 			syscallConfigs[i] = seq[i]
 		}
 	} else {
@@ -478,12 +505,20 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 			}
 		}
 
+		// Apply present mask
+		for i := 0; i < len(presentMask); i++ {
+			inverseHitRates[i] *= float64(presentMask[i])
+		}
+
 		// Now sample up to 8 configs by weight
 		for i := 0; i < 8; i++ {
-			// TODO check if there is anything left to sample
 			idxCur := pmfSample(inverseHitRates[:], proc.rnd)
 			syscallConfigs[i] = idxCur
 			inverseHitRates[idxCur] = 0
+			presentCount--
+			if presentCount == 0 {
+				break
+			}
 		}
 	}
 
