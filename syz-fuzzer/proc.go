@@ -510,6 +510,13 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 			inverseHitRates[i] *= float64(presentMask[i])
 		}
 
+		// Apply 10K limit
+		for i := 0; i < len(inverseHitRates); i++ {
+			if aggrHits[i] >= 10000 {
+				inverseHitRates[i] = 0
+			}
+		}
+
 		// Now sample up to 8 configs by weight
 		for i := 0; i < 8; i++ {
 			idxCur := pmfSample(inverseHitRates[:], proc.rnd)
