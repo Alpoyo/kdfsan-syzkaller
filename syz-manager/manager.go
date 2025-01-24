@@ -1131,9 +1131,9 @@ func (mgr *Manager) newTaintResult(inp rpctype.NewTaintResult) bool {
 		if inp.SyscallConfigs[i] < 0 {
 			continue
 		}
-		syscallAttempts[inp.SyscallConfigs[i]] += 1
+		syscallAttempts[inp.SyscallConfigs[i]]++
 		if (inp.HitMask & (1 << i)) != 0 {
-			syscallHits[inp.SyscallConfigs[i]] += 1
+			syscallHits[inp.SyscallConfigs[i]]++
 		}
 	}
 

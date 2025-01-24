@@ -431,6 +431,7 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	const logResults = false    // Default: false
 	const doSyscallOnly = -1    // Default: -1
 	const doVerbose = false     // Default: false
+	const hitLimit = 1000       // Default: 1000
 
 	// Ensures rpc calls unrelated to snapshotting are not made during testing
 	proc.fuzzer.rpcMu.Lock()
@@ -439,6 +440,22 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	// Limit concurrency window and do leak checking once in a while.
 	ticket := proc.fuzzer.gate.Enter()
 	defer proc.fuzzer.gate.Leave(ticket)
+
+	if !initIsDone {
+		initIsDone = true
+		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/kdfsan/enable"); err != nil {
+			log.Logf(0, "Failed to enable Kdfsan: %v", err)
+		}
+
+		// Request the attempts statistics on startup
+		var r = proc.fuzzer.sendAttemptToManager(rpctype.NewAttempt{
+			Attempts: [118]int{},
+		})
+		for i := 0; i < len(aggrAttempts); i++ {
+			aggrAttempts[i] = r[i]
+			aggrHits[i] = r[i+118]
+		}
+	}
 
 	// Alper
 	// check whether the tainted is present in the input program
@@ -512,13 +529,13 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 
 		// Apply 10K limit
 		for i := 0; i < len(inverseHitRates); i++ {
-			if aggrHits[i] >= 10000 {
+			if aggrHits[i] >= hitLimit {
 				inverseHitRates[i] = 0
 			}
 		}
 
 		// Now sample up to 8 configs by weight
-		for i := 0; i < 8; i++ {
+		for i := 0; i < 8 && floatsSum(inverseHitRates[:]) != 0; i++ {
 			idxCur := pmfSample(inverseHitRates[:], proc.rnd)
 			syscallConfigs[i] = idxCur
 			inverseHitRates[idxCur] = 0
@@ -540,13 +557,6 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	}
 
 	proc.logProgram(opts, p)
-
-	if !initIsDone {
-		initIsDone = true
-		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/kdfsan/enable"); err != nil {
-			log.Logf(0, "Failed to enable Kdfsan: %v", err)
-		}
-	}
 
 	// Alper
 	// Forward the config to kernel
@@ -649,12 +659,12 @@ func (proc *Proc) logProgram(opts *ipc.ExecOpts, p *prog.Prog) {
 	// Alper
 	// Fake log to speed it up. The manager expects a log, so we provide a fake one so it's not killed
 	// TODO maybe disable this?
-	now := time.Now()        //
-	proc.fuzzer.logMu.Lock() //
+	now := time.Now()                                         //
+	proc.fuzzer.logMu.Lock()                                  //
 	fmt.Printf("%02v:%02v:%02v executing program 0:\nmmap\n", //
 		now.Hour(), now.Minute(), now.Second()) //
-	proc.fuzzer.logMu.Unlock()                  //
-	return                                      //
+	proc.fuzzer.logMu.Unlock() //
+	return                     //
 
 	//if proc.fuzzer.outputType == OutputNone {
 	//	return
