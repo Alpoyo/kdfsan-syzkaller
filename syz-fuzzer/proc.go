@@ -455,6 +455,9 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 			aggrAttempts[i] = r[i]
 			aggrHits[i] = r[i+118]
 		}
+
+		// flush for good measure
+		os.ReadFile("/sys/kernel/debug/alper/flush")
 	}
 
 	// Alper
@@ -658,13 +661,12 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 func (proc *Proc) logProgram(opts *ipc.ExecOpts, p *prog.Prog) {
 	// Alper
 	// Fake log to speed it up. The manager expects a log, so we provide a fake one so it's not killed
-	// TODO maybe disable this?
-	now := time.Now()                                         //
-	proc.fuzzer.logMu.Lock()                                  //
+	now := time.Now()        //
+	proc.fuzzer.logMu.Lock() //
 	fmt.Printf("%02v:%02v:%02v executing program 0:\nmmap\n", //
 		now.Hour(), now.Minute(), now.Second()) //
-	proc.fuzzer.logMu.Unlock() //
-	return                     //
+	proc.fuzzer.logMu.Unlock()                  //
+	return                                      //
 
 	//if proc.fuzzer.outputType == OutputNone {
 	//	return
