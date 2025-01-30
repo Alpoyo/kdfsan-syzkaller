@@ -375,7 +375,7 @@ var (
 	beforeContext = 1024 << 10
 	afterContext  = 128 << 10
 
-	NoOutputTimeout      = 30 * time.Second // Alper
+	NoOutputTimeout      = 5 * time.Minute
 	tickerPeriod         = 10 * time.Second
 	waitForOutputTimeout = 10 * time.Second
 )
