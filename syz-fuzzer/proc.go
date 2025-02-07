@@ -278,7 +278,7 @@ func (proc *Proc) enqueueCallTriage(p *prog.Prog, flags ProgTypes, callIndex int
 	})
 }
 
-var tmpCtr = 0 ////
+var kdfsanInit = false ////
 
 func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.ProgInfo {
 	if opts.Flags&ipc.FlagDedupCover == 0 {
@@ -293,22 +293,14 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	ticket := proc.fuzzer.gate.Enter()
 	defer proc.fuzzer.gate.Leave(ticket)
 
-	enableKdfsan := false
-	if tmpCtr != 0 { ////
-		log.Logf(0, "*** proc.executeRaw: Requesting snapshot save... ***\n")
-		enableKdfsan = proc.fuzzer.cmdManagerToSaveSnapshot()
-		log.Logf(0, "*** proc.executeRaw: Snapshot taken! Returned enableKdfsan: %t ***\n", enableKdfsan)
-	}
-
-	proc.logProgram(opts, p)
-
-	if enableKdfsan {
-		log.Logf(0, "*** proc.executeRaw: Enabling Kdfsan... ***\n")
+	if !kdfsanInit { ////
+        kdfsanInit = true
 		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/kdfsan/enable"); err != nil {
 			log.Logf(0, "Failed to enable Kdfsan: %v", err)
 		}
-		log.Logf(0, "*** proc.executeRaw: Kdfsan enabled ***\n")
-	}
+	} ////
+
+	proc.logProgram(opts, p)
 
 	for try := 0; ; try++ {
 		atomic.AddUint64(&proc.fuzzer.stats[stat], 1)
@@ -324,16 +316,9 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 		}
 		log.Logf(2, "result hanged=%v: %s", hanged, output)
 
-		if tmpCtr != 0 { ////
-			if enableKdfsan {
-				log.Logf(0, "*** proc.executeRaw: Finished test WITH Kdfsan! Requesting snapshot load... ***\n")
-				proc.fuzzer.cmdManagerToLoadSnapshot()
-				log.Fatalf("cmdManagerToLoadSnapshot should not return")
-			} else {
-				log.Logf(0, "*** proc.executeRaw: Finished test WITHOUT Kdfsan! Continuing... ***\n")
-			}
+		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/kdfsan/flush"); err != nil {
+			log.Logf(0, "Failed to flush Kdfsan: %v", err)
 		}
-		tmpCtr++ ////
 
 		return info
 	}
