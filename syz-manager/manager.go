@@ -1123,6 +1123,9 @@ var syscallHits = [118]int{}
 var rnd *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 func (mgr *Manager) newTaintResult(inp rpctype.NewTaintResult) bool {
+    // Define configuration
+    const taintdbMaxSize int64 = (1 << 32)  // in bytes, default: 1<<32
+
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
@@ -1166,6 +1169,15 @@ func (mgr *Manager) newTaintResult(inp rpctype.NewTaintResult) bool {
 	if err0 != nil || err1 != nil || err2 != nil || err3 != nil || err4 != nil {
 		log.Logf(0, "\033[1m\033[38;2;255;0;0msome error???\033[0m", err)
 	}
+    
+    // Get the file size for taintdb
+    fileInfo, errInf := os.Stat(taintDbPath)
+    if errInf != nil {
+        log.Logf(0, "\033[1m\033[38;2;255;0;0mtaintdb file stat err: %v\033[0m", err)
+    }
+    if taintdbMaxSize != 0 && fileInfo.Size() > taintdbMaxSize {
+        log.Fatalf("maximum filesize reached for myresults.txt: %v", fileInfo.Size())
+    }
 
 	// Save input program belonging to this taint session, create the dir if it doesn't exist yet.
 	inputProgDir := filepath.Join(mgr.cfg.Workdir, "myinputs")
@@ -1179,11 +1191,11 @@ func (mgr *Manager) newTaintResult(inp rpctype.NewTaintResult) bool {
 	if err != nil {
 		log.Logf(0, "Error creating file: %v", err)
 	}
-	defer file.Close()
 	_, err = file.Write(inp.InputProgram2)
 	if err != nil {
 		log.Logf(0, "Error writing to file: %v", err)
 	}
+	file.Close()
 
 	return true
 }
