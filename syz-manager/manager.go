@@ -18,6 +18,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+    "strings"
+    "strconv"
 
 	"github.com/google/syzkaller/dashboard/dashapi"
 	"github.com/google/syzkaller/pkg/cover"
@@ -113,6 +115,165 @@ type Crash struct {
 	hub     bool // this crash was created based on a repro from hub
 	*report.Report
 }
+
+// Run-time analysis ///////////////////////////////////////////////////////////
+
+/* "/home/alper/github/kdfsan-alper/linux-alper/mm/slab.h" -> "mm/slab.h" */
+var linuxfile_cache = make(map[string]string)
+func linux_path(fullpath string) string {
+    result, ok := linuxfile_cache[fullpath]
+    if ok {
+        return result
+    }
+
+    fullpath_forreal, err := filepath.Abs(fullpath)
+    if err != nil {
+        linuxfile_cache[fullpath] = "??"
+        return "??"
+    }
+
+    idx := strings.Index(fullpath_forreal, "linux-alper")
+    if idx == -1 {
+        return "??"
+    }
+    result2 := fullpath_forreal[idx + 12:]
+    linuxfile_cache[fullpath] = result2
+    return result2
+}
+
+var addr2lines_cache = make(map[uint64][]string)
+func addr2lines(addr uint64) []string {
+    if addr < 0xffff000000000000 {
+        // Deal with compressed 48-bit addr
+        addr += 0xffff000000000000
+    }
+
+    lines, ok := addr2lines_cache[addr]
+    if ok {
+        return lines
+    }
+    
+    vmlinux := "/home/alper/github/kdfsan-alper/linux-alper/vmlinux"
+    addrStr := fmt.Sprintf("%x", addr)
+    cmd := exec.Command("llvm-addr2line-11", "-i", "-e", vmlinux, addrStr)
+    out, errfoo := cmd.Output()
+    if errfoo != nil {
+        addr2lines_cache[addr] = []string{"??:"}
+        return []string{"??:"}
+    }
+    stdout := string(out)
+    stuff := strings.Split(stdout, "\n")
+    stuff = stuff[:len(stuff)-1]
+    
+    // Strip linux root dir
+    for i := 0; i < len(stuff); i++ {
+        loc := strings.Split(stuff[i], ":")
+        stuff[i] = linux_path(loc[0]) + ":" + loc[1]
+    }
+
+    addr2lines_cache[addr] = stuff
+
+    return stuff
+}
+
+type offset_size struct {
+    offset int
+    size int
+}
+
+const entry_min_size int = 214
+func entry_to_alloc_trace(entry string) []uint64 {
+    trace_size_off := 198 - 20
+    trace_size, _ := strconv.ParseInt(entry[trace_size_off + 2:trace_size_off + 4], 16, 64)
+    alloc_size_off := 203 - 20
+    alloc_size, _ := strconv.ParseInt(entry[alloc_size_off + 2:alloc_size_off + 4], 16, 64)
+    if alloc_size == 0 {
+        return nil
+    }
+
+    traces_off := int64(235 - 20)
+    alloc_trace := make([]uint64, alloc_size)
+    u48_stuff := uint64(0xffff000000000000)
+    for i := int64(0); i < alloc_size; i++ {
+        off_cur := traces_off + int64(15) * (i + trace_size)
+        addr_cur, _ := strconv.ParseUint(entry[off_cur + 2:off_cur + 14], 16, 64)
+        addr_cur += u48_stuff
+        alloc_trace[i] = addr_cur
+    }
+
+    return alloc_trace
+}
+
+func entry_to_range(entry string) offset_size {
+    ptr, _ := strconv.ParseInt(entry[2:12+2], 16, 64)
+    base, _ := strconv.ParseInt(entry[195:195+12], 16, 64)
+    size, _ := strconv.ParseInt(entry[210:210+4], 16, 64)
+    return offset_size{offset: int(ptr - base), size: int(size)}
+}
+
+var slab_files map[string]struct{} = map[string]struct{}{
+    "include/linux/slab.h": struct{}{},
+    "mm/slab.h": struct{}{},
+    "mm/slub.c": struct{}{},
+    "mm/util.c": struct{}{},
+    "mm/slab_common.c": struct{}{},
+}
+
+/* Return the PC that is probably the place where a typed variable is assigned
+ * with the allocated slab object */
+// TODO return inline lvl?
+func trace_to_alloc(trace []uint64) uint64 {
+    for i := 0; i < len(trace); i++ {
+        lines := addr2lines(trace[i])
+        for j := 0; j < len(lines); j++ {
+            loc := strings.Split(lines[j], ":")
+            _, ok := slab_files[loc[0]]
+            if !ok {
+                return trace[i]
+            }
+        }
+    }
+
+    // This return statement is probably never hit
+    return trace[len(trace) - 1]
+}
+
+func pretty_trace(trace []uint64) string {
+    out := ""
+    for i := 0; i < len(trace); i++ {
+        out += "* "
+        lines := addr2lines(trace[i])
+        for j := 0; j < len(lines); j++ {
+            out += lines[j]
+            out += "\n"
+            if j < len(lines) - 1 {
+                out += "  "
+            }
+        }
+    }
+    return out
+}
+
+func test_rt_analysis() {
+    test_addr := uint64(0xffff82a574bc)
+    lines := addr2lines(test_addr)
+    log.Logf(0, "BBBB %v", lines)
+    lines = addr2lines(test_addr)
+    log.Logf(0, "BBBB %v", lines)
+    log.Logf(0, "HHHH %v", linuxfile_cache)
+    log.Logf(0, "IIII %v", addr2lines_cache)
+
+    // 14'th element (13 index) is alloc trace size, traces start at 18'th element
+    test_entry := "0x888030246b98 0x0008 0x01 0x0000004642ed 0x0261 0x0000000020ffe000 0x0000000000002000 0x0000000001000000 0x0000000000000012 0x0000000000000004 0x00000000dfb41000 0x8880303c0000 0x08 0x08 0x20 0x888030246b28 0x0088 0xffff819cbe9a 0xffff819c9bbf 0xffff818f537b 0xffff819ceba4 0xffff810fe3a4 0xffff810fd830 0xffff8631e773 0xffff86400097 0xffff81b05bc6 0xffff81afc4fb 0xffff81217138 0xffff819cb908 0xffff819c9bbf 0xffff818f537b 0xffff819ceba4 0xffff810fe3a4"
+    alloc_trace := entry_to_alloc_trace(test_entry)
+    log.Logf(0, "FFFF %v", alloc_trace)
+    log.Logf(0, "GGGG \n%v", pretty_trace(alloc_trace))
+    foo_alloc := trace_to_alloc(alloc_trace)
+    log.Logf(0, "JJJJ %v", addr2lines(foo_alloc))
+    log.Logf(0, "KKKK %v", entry_to_range(test_entry))
+}
+
+// Stuff ///////////////////////////////////////////////////////////////////////
 
 func main() {
 	if sys.GitRevision == "" {
@@ -1124,7 +1285,7 @@ var rnd *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 func (mgr *Manager) newTaintResult(inp rpctype.NewTaintResult) bool {
     // Define configuration
-    const taintdbMaxSize int64 = (1 << 32)  // in bytes, default: 1<<32
+    const taintdbMaxSize int64 = (1 << 34)  // in bytes, default: 1<<34
 
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
