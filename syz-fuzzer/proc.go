@@ -279,8 +279,13 @@ func (proc *Proc) enqueueCallTriage(p *prog.Prog, flags ProgTypes, callIndex int
 }
 
 var tmpCtr = 0 ////
+var kdfsanInit = false
 
 func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.ProgInfo {
+    // Configuration
+    var useFlush = true
+    var assertUntainted = false
+
 	if opts.Flags&ipc.FlagDedupCover == 0 {
 		log.Fatalf("dedup cover is not enabled")
 	}
@@ -294,21 +299,37 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	defer proc.fuzzer.gate.Leave(ticket)
 
 	enableKdfsan := false
-	if tmpCtr != 0 { ////
-		log.Logf(0, "*** proc.executeRaw: Requesting snapshot save... ***\n")
-		enableKdfsan = proc.fuzzer.cmdManagerToSaveSnapshot()
-		log.Logf(0, "*** proc.executeRaw: Snapshot taken! Returned enableKdfsan: %t ***\n", enableKdfsan)
-	}
+    if !useFlush {
+        if tmpCtr != 0 { ////
+            log.Logf(0, "*** proc.executeRaw: Requesting snapshot save... ***\n")
+            enableKdfsan = proc.fuzzer.cmdManagerToSaveSnapshot()
+            log.Logf(0, "*** proc.executeRaw: Snapshot taken! Returned enableKdfsan: %t ***\n", enableKdfsan)
+        }
+    } else {
+        if !kdfsanInit {
+            kdfsanInit = true
+            if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/kdfsan/enable"); err != nil {
+                log.Logf(0, "\033[38;2;0;150;255mFailed to enable Kdfsan: %v\033[0m", err)
+            }
+
+            _, err_flush := os.ReadFile("/sys/kernel/debug/kdfsan/flush")
+            if err_flush != nil {
+                log.Logf(0, "\033[38;2;0;150;255mFailed to flush Kdfsan: %v\033[0m", err_flush)
+            }
+        }
+    }
 
 	proc.logProgram(opts, p)
 
-	if enableKdfsan {
-		log.Logf(0, "*** proc.executeRaw: Enabling Kdfsan... ***\n")
-		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/kdfsan/enable"); err != nil {
-			log.Logf(0, "Failed to enable Kdfsan: %v", err)
-		}
-		log.Logf(0, "*** proc.executeRaw: Kdfsan enabled ***\n")
-	}
+    if !useFlush {
+        if enableKdfsan {
+            log.Logf(0, "*** proc.executeRaw: Enabling Kdfsan... ***\n")
+            if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/kdfsan/enable"); err != nil {
+                log.Logf(0, "Failed to enable Kdfsan: %v", err)
+            }
+            log.Logf(0, "*** proc.executeRaw: Kdfsan enabled ***\n")
+        }
+    }
 
 	for try := 0; ; try++ {
 		atomic.AddUint64(&proc.fuzzer.stats[stat], 1)
@@ -324,16 +345,36 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 		}
 		log.Logf(2, "result hanged=%v: %s", hanged, output)
 
-		if tmpCtr != 0 { ////
-			if enableKdfsan {
-				log.Logf(0, "*** proc.executeRaw: Finished test WITH Kdfsan! Requesting snapshot load... ***\n")
-				proc.fuzzer.cmdManagerToLoadSnapshot()
-				log.Fatalf("cmdManagerToLoadSnapshot should not return")
-			} else {
-				log.Logf(0, "*** proc.executeRaw: Finished test WITHOUT Kdfsan! Continuing... ***\n")
-			}
-		}
-		tmpCtr++ ////
+        if !useFlush {
+            if tmpCtr != 0 { ////
+                if enableKdfsan {
+                    log.Logf(0, "*** proc.executeRaw: Finished test WITH Kdfsan! Requesting snapshot load... ***\n")
+                    proc.fuzzer.cmdManagerToLoadSnapshot()
+                    log.Fatalf("cmdManagerToLoadSnapshot should not return")
+                } else {
+                    log.Logf(0, "*** proc.executeRaw: Finished test WITHOUT Kdfsan! Continuing... ***\n")
+                }
+            }
+            tmpCtr++ ////
+        } else {
+            for i := 0; i < 8; i++ {
+                _, err_flush := os.ReadFile("/sys/kernel/debug/kdfsan/flush")
+                if err_flush != nil {
+                    log.Logf(0, "\033[38;2;0;150;255mFailed to flush Kdfsan: %v\033[0m", err_flush)
+                }
+            }
+        }
+
+        if assertUntainted {
+            tainted_page_num, err_untainted := os.ReadFile("/sys/kernel/debug/kdfsan/assert_untainted")
+            if err_untainted != nil {
+                log.Logf(0, "\033[38;2;0;150;255mFailed to assert untainted Kdfsan: %v\033[0m", err_untainted)
+            }
+            if string(tainted_page_num) != "0\n" {
+                // Notify syz-manager of failed taint
+                os.ReadFile("/sys/kernel/debug/kdfsan/report")
+            }
+        }
 
 		return info
 	}
