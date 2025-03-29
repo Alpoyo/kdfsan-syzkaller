@@ -427,11 +427,11 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 	// Alper
 	// Define constants
 	const doMylog = false       // Default: false
-	const doUniformOnly = false // Default: false
+	const doUniformOnly = true  // Default: true
 	const logResults = false    // Default: false
 	const doSyscallOnly = -1    // Default: -1
 	const doVerbose = false     // Default: false
-	const hitLimit = 1000       // Default: 1000
+	const hitLimit = 1000000000 // Default: 1000000000
 
 	// Ensures rpc calls unrelated to snapshotting are not made during testing
 	proc.fuzzer.rpcMu.Lock()
