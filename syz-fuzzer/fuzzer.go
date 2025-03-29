@@ -6,6 +6,7 @@ package main
 import (
 	"flag"
 	"fmt"
+    "math"
 	"math/rand"
 	"net/http"
 	_ "net/http/pprof"
@@ -428,6 +429,92 @@ func (fuzzer *Fuzzer) sendAttemptToManager(inp rpctype.NewAttempt) [236]int {
 		log.Fatalf("AAAAAA Manager.NewTaintResult call failed: %v", err)
 	}
 	return r
+}
+
+// This should be called with the rpc mutex locked
+func (fuzzer *Fuzzer) cmdManagerToSaveSnapshot() bool {
+
+	aName := &rpctype.NameArg{Name: fuzzer.name}
+
+	log.Logf(1, "****** fuzzer.cmdManagerToSaveSnapshot: Sending SaveSnapshot to manager (async)... ******\n")
+	////
+	isWaitingTest := true
+	go func() {
+		for isWaitingTest {
+			log.Logf(1, "****** fuzzer.cmdManagerToSaveSnapshot: waiting for SaveSnapshot... ******\n")
+			time.Sleep(2 * time.Second)
+		}
+	}()
+	////
+
+	// SaveSnapshot (async) then immediately close connection
+	// We assume the connection is closed before SaveSnapshot runs; yes, this may be a race condition...
+	fuzzer.manager.Close()
+	rpctype.RPCCallAsync(globalManagerAddr, "Manager.SaveSnapshot", aName, nil)
+
+	// Wait until SaveSnapshot finished then continue
+	// - Poll manager via transient connection (i.e., RPCCall)
+	// - Set connection timeout so that when snapshot is reloaded, it doesn't wait indefinitely for a response
+	saveSnapIsFinished := false
+	rCheckSaveSnapDone := &rpctype.BoolRes{B: false}
+	backOffN := float64(0)
+	for !saveSnapIsFinished {
+		// Exponential backoff the re-connection to a max of 1 second
+		backOffUnits := math.Min(1000, 20*math.Pow(1.25, backOffN))
+		totalTime := time.Duration(backOffUnits) * time.Millisecond
+		time.Sleep(totalTime)
+		backOffN++
+
+		//log.Logf(1, "****** fuzzer.cmdManagerToSaveSnapshot: checking if SaveSnapshot is done... ******\n")
+		if err := rpctype.RPCCallTimeout(10*time.Millisecond, globalManagerAddr, "Manager.CheckIsSaveSnapDone", aName, rCheckSaveSnapDone); err != nil {
+			//log.Logf(1, "****** fuzzer.cmdManagerToSaveSnapshot: Manager.CheckIsSaveSnapDone call failed; trying again... ******\n")
+		}
+		saveSnapIsFinished = rCheckSaveSnapDone.B
+		//log.Logf(1, "****** fuzzer.cmdManagerToSaveSnapshot: CheckIsSaveSnapDone returned %t ******\n", saveSnapIsFinished)
+	}
+
+	// Reconnect
+	log.Logf(1, "dialing manager at %v", globalManagerAddr)
+	tmpManager, err := rpctype.NewRPCClient(globalManagerAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to manager: %v ", err)
+	}
+	fuzzer.manager = tmpManager
+	isWaitingTest = false ////
+	log.Logf(1, "****** fuzzer.cmdManagerToSaveSnapshot: SaveSnapshot done! ******\n")
+
+	// Check whether to enable Kdfsan for this run
+	log.Logf(1, "****** fuzzer.cmdManagerToSaveSnapshot: Sending CheckEnableKdfsan to manager... ******\n")
+	rCheckEnableSpec := &rpctype.BoolRes{B: false}
+	if err := fuzzer.manager.Call("Manager.CheckEnableKdfsan", aName, rCheckEnableSpec); err != nil {
+		log.Fatalf("****** Manager.CheckEnableKdfsan call failed: %v ******", err)
+	}
+	log.Logf(1, "****** fuzzer.cmdManagerToSaveSnapshot: CheckEnableKdfsan done! ******\n")
+
+	return rCheckEnableSpec.B
+}
+
+// This should be called with the rpc mutex locked
+func (fuzzer *Fuzzer) cmdManagerToLoadSnapshot() {
+	aName := &rpctype.NameArg{Name: fuzzer.name}
+
+	log.Logf(1, "****** fuzzer.cmdManagerToLoadSnapshot: Sending LoadSnapshot to manager (async)... ******\n")
+	////
+	isWaitingTest := true
+	go func() {
+		for isWaitingTest {
+			log.Logf(1, "****** fuzzer.cmdManagerToLoadSnapshot: waiting for LoadSnapshot... ******\n")
+			time.Sleep(2 * time.Second)
+		}
+	}()
+	////
+
+	fuzzer.manager.Close()
+	rpctype.RPCCallAsync(globalManagerAddr, "Manager.LoadSnapshot", aName, nil)
+	time.Sleep(1 * time.Hour)
+
+	log.Fatalf("****** ERROR: cmdManagerToLoadSnapshot SHOULD NOT RETURN ******")
+	isWaitingTest = false ////
 }
 
 func (fuzzer *Fuzzer) addInputFromAnotherFuzzer(inp rpctype.RPCInput) {

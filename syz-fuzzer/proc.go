@@ -388,6 +388,7 @@ var aggrHits = [118]int{}
 // Alper
 var attemptCommCounter = 0
 var initIsDone = false
+var tmpCtr = 0 ////
 
 // Return the index of the sampled element
 func pmfSample(pmf []float64, rnd *rand.Rand) int {
@@ -426,12 +427,15 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 
 	// Alper
 	// Define constants
+    const useFlush = true       // Default: true
 	const doMylog = false       // Default: false
 	const doUniformOnly = true  // Default: true
 	const logResults = false    // Default: false
 	const doSyscallOnly = -1    // Default: -1
 	const doVerbose = false     // Default: false
 	const hitLimit = 1000000000 // Default: 1000000000
+    const useMultiTaint = true  // Default: true
+    const useParseInput = true  // Default: true
 
 	// Ensures rpc calls unrelated to snapshotting are not made during testing
 	proc.fuzzer.rpcMu.Lock()
@@ -443,11 +447,16 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 
 	if !initIsDone {
 		initIsDone = true
-		if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/kdfsan/enable"); err != nil {
-			log.Logf(0, "Failed to enable Kdfsan: %v", err)
-		}
+        if useFlush {
+            if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/kdfsan/enable"); err != nil {
+                log.Logf(0, "Failed to enable Kdfsan: %v", err)
+            }
 
-		// Request the attempts statistics on startup
+            // flush for good measure
+            os.ReadFile("/sys/kernel/debug/alper/flush")
+        }
+		
+        // Request the attempts statistics on startup
 		var r = proc.fuzzer.sendAttemptToManager(rpctype.NewAttempt{
 			Attempts: [118]int{},
 		})
@@ -455,37 +464,50 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 			aggrAttempts[i] = r[i]
 			aggrHits[i] = r[i+118]
 		}
-
-		// flush for good measure
-		os.ReadFile("/sys/kernel/debug/alper/flush")
 	}
+
+    enableKdfsan := false
+    if !useFlush {
+        if tmpCtr != 0 { ////
+            log.Logf(0, "*** proc.executeRaw: Requesting snapshot save... ***\n")
+            enableKdfsan = proc.fuzzer.cmdManagerToSaveSnapshot()
+            log.Logf(0, "*** proc.executeRaw: Snapshot taken! Returned enableKdfsan: %t ***\n", enableKdfsan)
+        }
+    }
 
 	// Alper
 	// check whether the tainted is present in the input program
 	var inputProgStr = "input program: "
 	var progSyscalls []string
-	for _, call := range p.Calls {
-		sysNameCur := call.Meta.CallName
-		progSyscalls = append(progSyscalls, sysNameCur)
-
-		// append to program string
-		inputProgStr += sysNameCur
-		inputProgStr += ", "
-	}
 	var presentMask = [118]int{}
 	presentCount := 0
-	for i := 0; i < len(syscallNames); i++ {
-		for j := 0; j < len(progSyscalls); j++ {
-			if progSyscalls[j] == syscallNames[i] {
-				for k := 0; k < syscallArgs[i]; k++ {
-					flatCur := syscallToFlat[i][k]
-					presentMask[flatCur] = 1
-					presentCount++
-				}
-				break
-			}
-		}
-	}
+    for _, call := range p.Calls {
+        sysNameCur := call.Meta.CallName
+        progSyscalls = append(progSyscalls, sysNameCur)
+
+        // append to program string
+        inputProgStr += sysNameCur
+        inputProgStr += ", "
+    }
+    if useParseInput {
+        for i := 0; i < len(syscallNames); i++ {
+            for j := 0; j < len(progSyscalls); j++ {
+                if progSyscalls[j] == syscallNames[i] {
+                    for k := 0; k < syscallArgs[i]; k++ {
+                        flatCur := syscallToFlat[i][k]
+                        presentMask[flatCur] = 1
+                        presentCount++ // TODO(Alper): doesn't this count duplicates?
+                    }
+                    break
+                }
+            }
+        }
+    } else {
+        for i := 0; i < len(presentMask); i++ {
+            presentMask[i] = 1
+        }
+        presentCount = len(presentMask)
+    }
 
 	// Alper
 	// Generate random syscall taint config. Use inverse hit rates as the weights for the random sampling
@@ -503,7 +525,6 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 				seq = append(seq, i)
 			}
 		}
-
 		intsShuffle(seq, proc.rnd)
 		for i := 0; i < 8 && i < len(seq); i++ {
 			syscallConfigs[i] = seq[i]
@@ -524,19 +545,16 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 				inverseHitRates[i] = noHitWeight
 			}
 		}
-
 		// Apply present mask
 		for i := 0; i < len(presentMask); i++ {
 			inverseHitRates[i] *= float64(presentMask[i])
 		}
-
 		// Apply 10K limit
 		for i := 0; i < len(inverseHitRates); i++ {
 			if aggrHits[i] >= hitLimit {
 				inverseHitRates[i] = 0
 			}
 		}
-
 		// Now sample up to 8 configs by weight
 		for i := 0; i < 8 && floatsSum(inverseHitRates[:]) != 0; i++ {
 			idxCur := pmfSample(inverseHitRates[:], proc.rnd)
@@ -559,7 +577,23 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 		}
 	}
 
+    if !useMultiTaint {
+		for i := 1; i < len(syscallConfigs); i++ {
+			syscallConfigs[i] = -1
+		}
+    }
+
 	proc.logProgram(opts, p)
+
+    if !useFlush {
+        if enableKdfsan {
+            log.Logf(0, "*** proc.executeRaw: Enabling Kdfsan... ***\n")
+            if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c", "cat /sys/kernel/debug/kdfsan/enable"); err != nil {
+                log.Logf(0, "Failed to enable Kdfsan: %v", err)
+            }
+            log.Logf(0, "*** proc.executeRaw: Kdfsan enabled ***\n")
+        }
+    }
 
 	// Alper
 	// Forward the config to kernel
@@ -573,10 +607,12 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 		}
 		configStr += u16_to_hex(uint16(sysCur)) + " " + u8_to_hex(uint8(argCur)) + " "
 	}
-	if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c",
-		fmt.Sprintf("echo '%v' > /sys/kernel/debug/alper/syscall_config", configStr)); err != nil {
-		log.Logf(0, "Failed commiting syscall config: %v", err)
-	}
+    if useFlush || enableKdfsan {
+        if _, err := osutil.RunCmd(time.Minute, "", "bash", "-c",
+            fmt.Sprintf("echo '%v' > /sys/kernel/debug/alper/syscall_config", configStr)); err != nil {
+            log.Logf(0, "Failed commiting syscall config: %v", err)
+        }
+    }
 
 	for try := 0; ; try++ {
 		atomic.AddUint64(&proc.fuzzer.stats[stat], 1)
@@ -609,50 +645,72 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
 		}
 
 		// Read and clear the results file
-		data, err2 := os.ReadFile("/sys/kernel/debug/alper/results")
-		if err2 != nil {
-			log.Logf(0, "Failed to read /sys/kernel/debug/alper/results: %v", err2)
-		}
+        var data []byte
+        if useFlush || enableKdfsan {
+            var err2 error
+            data, err2 = os.ReadFile("/sys/kernel/debug/alper/results")
+            if err2 != nil {
+                log.Logf(0, "Failed to read /sys/kernel/debug/alper/results: %v", err2)
+            }
+        }
+        
+        // TODO flush a bunch of times
 
 		// Send taint log to manager before snapshot restore, if there was any taint
 		if logResults {
 			log.Logf(0, "\033[38;2;255;255;0m%v\033[0m\n", string(data))
 		}
-		myresult_count, errParse := strconv.ParseUint(string(data[151+2:151+2+8]), 16, 32)
-		hitmask, errParse2 := strconv.ParseUint(string(data[127+2:127+2+2]), 16, 8)
-		if myresult_count > 0 && errParse == nil && errParse2 == nil {
-			proc.fuzzer.sendTaintToManager(rpctype.NewTaintResult{
-				SyscallConfigs: syscallConfigs,
-				HitMask:        uint8(hitmask),
-				SyscallResults: data,
-				InputProgram:   inputProgStr,
-				InputProgram2:  p.Serialize(),
-				MyLog:          mylogStr,
-			})
-		} else {
-			// None of the taint values hit anything, count up to 8 attempts
-			for i := 0; i < len(syscallConfigs); i++ {
-				if syscallConfigs[i] < 0 {
-					continue
-				}
-				attemptBuffer[syscallConfigs[i]]++
-			}
+        if useFlush || enableKdfsan {
+            myresult_count, errParse := strconv.ParseUint(string(data[151+2:151+2+8]), 16, 32)
+            hitmask, errParse2 := strconv.ParseUint(string(data[127+2:127+2+2]), 16, 8)
+            if myresult_count > 0 && errParse == nil && errParse2 == nil {
+                proc.fuzzer.sendTaintToManager(rpctype.NewTaintResult{
+                    SyscallConfigs: syscallConfigs,
+                    HitMask:        uint8(hitmask),
+                    SyscallResults: data,
+                    InputProgram:   inputProgStr,
+                    InputProgram2:  p.Serialize(),
+                    MyLog:          mylogStr,
+                })
+            } else {
+                // None of the taint values hit anything, count up to 8 attempts
+                for i := 0; i < len(syscallConfigs); i++ {
+                    if syscallConfigs[i] < 0 {
+                        continue
+                    }
+                    attemptBuffer[syscallConfigs[i]]++
+                }
 
-			const attemptCommInterval = 10
-			attemptCommCounter++
-			if attemptCommCounter >= attemptCommInterval {
-				/* Send attempt buffer and clear */
-				attemptCommCounter = 0
-				var r = proc.fuzzer.sendAttemptToManager(rpctype.NewAttempt{
-					Attempts: attemptBuffer,
-				})
-				for i := 0; i < len(attemptBuffer); i++ {
-					attemptBuffer[i] = 0
-					aggrAttempts[i] = r[i]
-					aggrHits[i] = r[i+118]
-				}
-			}
-		}
+                const attemptCommInterval = 10
+                attemptCommCounter++
+                if attemptCommCounter >= attemptCommInterval {
+                    /* Send attempt buffer and clear */
+                    attemptCommCounter = 0
+                    var r = proc.fuzzer.sendAttemptToManager(rpctype.NewAttempt{
+                        Attempts: attemptBuffer,
+                    })
+                    for i := 0; i < len(attemptBuffer); i++ {
+                        attemptBuffer[i] = 0
+                        aggrAttempts[i] = r[i]
+                        aggrHits[i] = r[i+118]
+                    }
+                }
+            }
+        }
+
+        // Possibly restore snapshot
+        if !useFlush {
+            if tmpCtr != 0 { ////
+                if enableKdfsan {
+                    log.Logf(0, "*** proc.executeRaw: Finished test WITH Kdfsan! Requesting snapshot load... ***\n")
+                    proc.fuzzer.cmdManagerToLoadSnapshot()
+                    log.Fatalf("cmdManagerToLoadSnapshot should not return")
+                } else {
+                    log.Logf(0, "*** proc.executeRaw: Finished test WITHOUT Kdfsan! Continuing... ***\n")
+                }
+            }
+            tmpCtr++ ////
+        }
 
 		return info
 	}
