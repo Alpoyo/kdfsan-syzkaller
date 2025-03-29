@@ -654,7 +654,15 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
             }
         }
         
-        // TODO flush a bunch of times
+        if useFlush {
+            // TODO(Alper): maybe more often? maybe assert always?
+            for i := 0; i < 8; i++ {
+                _, err_flush := os.ReadFile("/sys/kernel/debug/alper/flush")
+                if err_flush != nil {
+                    log.Logf(0, "\033[38;2;0;150;255mFailed to flush Kdfsan: %v\033[0m", err_flush)
+                }
+            }
+        }
 
 		// Send taint log to manager before snapshot restore, if there was any taint
 		if logResults {
