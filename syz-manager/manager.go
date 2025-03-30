@@ -1124,7 +1124,7 @@ var rnd *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 func (mgr *Manager) newTaintResult(inp rpctype.NewTaintResult) bool {
     // Define configuration
-    const taintdbMaxSize int64 = (1 << 32)  // in bytes, default: 1<<32
+    const taintdbMaxSize int64 = (1 << 34)  // in bytes, default: 1<<34
 
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
