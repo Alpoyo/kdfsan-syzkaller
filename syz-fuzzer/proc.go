@@ -152,7 +152,6 @@ func (proc *Proc) triageInput(item *WorkTriage) {
 		item.p, item.call = prog.Minimize(item.p, item.call, false,
 			func(p1 *prog.Prog, call1 int) bool {
 				for i := 0; i < minimizeAttempts; i++ {
-					// TODO(Alper): do I want to save this taint information?
 					info := proc.execute(proc.execOptsNoCollide, p1, ProgNormal, StatMinimize)
 					if !reexecutionSuccess(info, &item.info, call1) {
 						// The call was not executed or failed.
@@ -171,8 +170,6 @@ func (proc *Proc) triageInput(item *WorkTriage) {
 	sig := hash.Hash(data)
 
 	log.Logf(2, "added new input for %v to corpus:\n%s", logCallName, data)
-	// TODO(Alper): fill in syscall data, also make them a slice or serialize it before this point
-	// TODO(Alper): new rpc for thingy
 	proc.fuzzer.sendInputToManager(rpctype.RPCInput{
 		Call:   callName,
 		Prog:   data,
@@ -420,7 +417,6 @@ func pmfSample(pmf []float64, rnd *rand.Rand) int {
 }
 
 func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.ProgInfo {
-	// TODO(Alper) refactor
 	if opts.Flags&ipc.FlagDedupCover == 0 {
 		log.Fatalf("dedup cover is not enabled")
 	}
@@ -496,7 +492,7 @@ func (proc *Proc) executeRaw(opts *ipc.ExecOpts, p *prog.Prog, stat Stat) *ipc.P
                     for k := 0; k < syscallArgs[i]; k++ {
                         flatCur := syscallToFlat[i][k]
                         presentMask[flatCur] = 1
-                        presentCount++ // TODO(Alper): doesn't this count duplicates?
+                        presentCount++
                     }
                     break
                 }

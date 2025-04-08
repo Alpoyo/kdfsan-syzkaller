@@ -98,7 +98,6 @@ type ProgInfo struct {
 
 	// Alper
 	// syscall taint information
-	// TODO input program identifier?
 	SyscallNumber  uint32
 	SyscallArg     uint32
 	SyscallResults []byte
@@ -285,7 +284,6 @@ func (env *Env) Exec(opts *ExecOpts, p *prog.Prog) (output []byte, info *ProgInf
 			return
 		}
 	}
-	// MARK(Alper): is this where syz-executor is actually being called?
 
 	output, hanged, err0 = env.cmd.exec(opts, progData)
 	if err0 != nil {

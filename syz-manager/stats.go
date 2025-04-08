@@ -27,7 +27,6 @@ type Stats struct {
 	hubRecvReproDrop Stat
 	corpusCover      Stat
 	corpusSignal     Stat
-	// TODO(Alper) should put the whole database here
 	taintAddrsMem []Stat
 
 	mu         sync.Mutex

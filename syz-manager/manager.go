@@ -154,7 +154,6 @@ func main() {
 			syscallHits[i] = int(binary.LittleEndian.Uint32(myfileData[(i+118)*4 : (i+118)*4+4]))
 		}
 	}
-	// TODO warn if workdir is not deleted
 
 	RunManager(cfg, target, sysTarget, syscalls)
 }
@@ -568,7 +567,6 @@ func (mgr *Manager) runInstance(index int) (*Crash, error) {
 		snapshotOpFinished: false,
 		snapshotOpFailed:   make(chan bool),
 	}
-	// TODO(Alper): add a mutex lock in the defer stack?
 	defer delete(instsMap, vmStr) // instsMap[vmStr] should be deleted after the inst.Close operation, otherwise an RPC call could access deleted mem; hence this defer comes first
 	defer inst.Close()
 
@@ -584,7 +582,6 @@ func (mgr *Manager) runInstance(index int) (*Crash, error) {
 
 	// If SyzExecutorCmd is provided, it means that syz-executor is already in
 	// the image, so no need to copy it.
-	// MARK(Alper): log me, syz-executor command
 	executorCmd := targets.Get(mgr.cfg.TargetOS, mgr.cfg.TargetArch).SyzExecutorCmd
 	if executorCmd == "" {
 		executorCmd, err = inst.Copy(mgr.cfg.SyzExecutorBin)
@@ -1248,8 +1245,6 @@ func (mgr *Manager) newTaintAttempt(inp rpctype.NewAttempt, r *[236]int) bool {
 	return true
 }
 
-// TODO(Alper) new taint attempt
-
 func (mgr *Manager) candidateBatch(size int) []rpctype.RPCCandidate {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
@@ -1292,7 +1287,6 @@ type InstSnapInfo struct {
 
 func (mgr *Manager) sendMonitorCmd(vmName string, cmd string) {
 	//log.Logf(1, "************ (%v) manager.sendMonitorCmd: sending command '%s' to monitior at socket %s ************\n", vmName, cmd, instsMap[vmName].monPath)
-	// MARK(Alper): enable this log and see what happens?
 	failCount := 0
 	const maxFailCount = 2
 	for {
